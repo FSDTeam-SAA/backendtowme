@@ -1,0 +1,1302 @@
+{
+  "info": {
+    "_postman_id": "towme-backend-api-collection",
+    "name": "TOW ME - Backend API",
+    "description": "Complete API collection for TOW ME Tow Truck & Roadside Assistance Platform.\n\n## Quick Start\n1. Set `baseUrl` variable to your server (default: `http://localhost:5000`)\n2. Run **Admin Login** → token auto-saves to `adminToken`\n3. Run **Customer Register** → **Customer Login** → token auto-saves to `customerToken`\n4. Run **Driver Login** → token auto-saves to `driverToken`\n5. All protected routes use these tokens automatically.\n\n## Roles\n- **Admin**: Full access (web panel)\n- **Driver**: Mobile driver app\n- **Customer**: Mobile customer app",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000", "type": "string" },
+    { "key": "adminToken", "value": "", "type": "string" },
+    { "key": "driverToken", "value": "", "type": "string" },
+    { "key": "customerToken", "value": "", "type": "string" },
+    { "key": "driverId", "value": "", "type": "string" },
+    { "key": "customerId", "value": "", "type": "string" },
+    { "key": "tripId", "value": "", "type": "string" },
+    { "key": "ticketId", "value": "", "type": "string" },
+    { "key": "notificationId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "🔐 Auth",
+      "description": "Authentication endpoints for all roles",
+      "item": [
+        {
+          "name": "Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const res = pm.response.json();",
+                  "  pm.collectionVariables.set('adminToken', res.data.accessToken);",
+                  "  console.log('Admin token saved:', res.data.accessToken);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@towme.com\",\n  \"password\": \"Admin@1234\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/admin/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "admin", "login"]
+            },
+            "description": "Login as admin. Run `npm run seed:admin` first to create the admin account."
+          }
+        },
+        {
+          "name": "Customer Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const res = pm.response.json();",
+                  "  console.log('OTP (dev only):', res.data.otp);",
+                  "  pm.collectionVariables.set('_customerPhone', res.data.phoneNumber);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Dan Cohen\",\n  \"phoneNumber\": \"0501234567\",\n  \"email\": \"dan@example.com\",\n  \"password\": \"password123\",\n  \"confirmPassword\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/customer/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "customer", "register"]
+            },
+            "description": "Register a new customer. Returns OTP in dev mode (check response)."
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"0501234567\",\n  \"otp\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/verify-otp",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "verify-otp"]
+            },
+            "description": "Verify OTP sent to phone. Use the OTP returned from register response (dev mode)."
+          }
+        },
+        {
+          "name": "Customer Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const res = pm.response.json();",
+                  "  pm.collectionVariables.set('customerToken', res.data.accessToken);",
+                  "  pm.collectionVariables.set('customerId', res.data._id);",
+                  "  console.log('Customer token saved');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"0501234567\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/customer/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "customer", "login"]
+            }
+          }
+        },
+        {
+          "name": "Driver Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const res = pm.response.json();",
+                  "  pm.collectionVariables.set('driverToken', res.data.accessToken);",
+                  "  console.log('Driver token saved');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"0521234567\",\n  \"password\": \"driver123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/driver/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "driver", "login"]
+            },
+            "description": "Login as driver. Create a driver first via Admin → Create Driver."
+          }
+        },
+        {
+          "name": "Forget Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"0501234567\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/forget-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "forget-password"]
+            }
+          }
+        },
+        {
+          "name": "Verify Reset OTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"0501234567\",\n  \"otp\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/verify-reset-otp",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "verify-reset-otp"]
+            }
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"0501234567\",\n  \"otp\": \"123456\",\n  \"password\": \"newpassword123\",\n  \"confirmPassword\": \"newpassword123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/reset-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "reset-password"]
+            }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"YOUR_REFRESH_TOKEN_HERE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/refresh-token",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "refresh-token"]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "logout"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🚗 Drivers (Admin)",
+      "description": "Admin endpoints for managing drivers (tow truck operators)",
+      "item": [
+        {
+          "name": "Create Driver",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const res = pm.response.json();",
+                  "  pm.collectionVariables.set('driverId', res.data.driver._id);",
+                  "  console.log('Driver ID saved:', res.data.driver._id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "firstName", "value": "Yossi", "type": "text" },
+                { "key": "lastName", "value": "Levi", "type": "text" },
+                { "key": "phoneNumber", "value": "0521234567", "type": "text" },
+                { "key": "email", "value": "yossi@towme.com", "type": "text" },
+                { "key": "password", "value": "driver123", "type": "text" },
+                { "key": "idNumber", "value": "123456789", "type": "text" },
+                { "key": "dateOfBirth", "value": "1990-05-15", "type": "text" },
+                { "key": "vehicleType", "value": "regular", "type": "text", "description": "regular | flatbed | heavy" },
+                { "key": "licenseNumber", "value": "12-345-67", "type": "text" },
+                { "key": "vehicleYear", "value": "2020", "type": "text" },
+                { "key": "vehicleColor", "value": "White", "type": "text" },
+                { "key": "towingCapacity", "value": "3", "type": "text", "description": "0 | 1.5 | 3 | 5 | 10" },
+                { "key": "username", "value": "yossi_driver", "type": "text" },
+                { "key": "operatingArea", "value": "[\"Tel Aviv\", \"Jerusalem\", \"Haifa\"]", "type": "text", "description": "JSON array as string" },
+                { "key": "commissionPercent", "value": "15", "type": "text", "description": "5 to 30" },
+                { "key": "accountStatus", "value": "true", "type": "text" },
+                { "key": "profileImage", "type": "file", "src": [], "disabled": true, "description": "Optional: driver photo" },
+                { "key": "vehicleRegistration", "type": "file", "src": [], "disabled": true, "description": "Optional: vehicle registration doc" },
+                { "key": "insuranceDocument", "type": "file", "src": [], "disabled": true, "description": "Optional: insurance doc" }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/drivers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "drivers"]
+            },
+            "description": "Create a new driver. This also creates their login account. File uploads are optional."
+          }
+        },
+        {
+          "name": "Get All Drivers",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/drivers?page=1&limit=10&status=available",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "drivers"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "status", "value": "available", "description": "available | unavailable" },
+                { "key": "vehicleType", "value": "", "disabled": true, "description": "regular | flatbed | heavy" },
+                { "key": "search", "value": "", "disabled": true, "description": "Search by name, phone, license, ID" },
+                { "key": "sortBy", "value": "createdAt", "disabled": true },
+                { "key": "sortOrder", "value": "desc", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Driver by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/drivers/{{driverId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "drivers", "{{driverId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Driver",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "firstName", "value": "Yossi Updated", "type": "text" },
+                { "key": "commissionPercent", "value": "18", "type": "text" },
+                { "key": "operatingArea", "value": "[\"Tel Aviv\", \"Ramat Gan\"]", "type": "text" },
+                { "key": "vehicleColor", "value": "Blue", "type": "text" },
+                { "key": "profileImage", "type": "file", "src": [], "disabled": true }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/drivers/{{driverId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "drivers", "{{driverId}}"]
+            }
+          }
+        },
+        {
+          "name": "Block / Unblock Driver",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/drivers/{{driverId}}/toggle-block",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "drivers", "{{driverId}}", "toggle-block"]
+            },
+            "description": "Toggles block status. Call again to unblock."
+          }
+        },
+        {
+          "name": "Delete Driver",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/drivers/{{driverId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "drivers", "{{driverId}}"]
+            },
+            "description": "⚠️ Permanently deletes driver and their user account."
+          }
+        }
+      ]
+    },
+    {
+      "name": "🧑‍✈️ Driver (Self)",
+      "description": "Endpoints for the driver's own app (mobile)",
+      "item": [
+        {
+          "name": "Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{driverToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/drivers/me/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "drivers", "me", "profile"]
+            }
+          }
+        },
+        {
+          "name": "Update My Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{driverToken}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "firstName", "value": "Yossi", "type": "text" },
+                { "key": "lastName", "value": "Levi", "type": "text" },
+                { "key": "email", "value": "yossi@email.com", "type": "text" },
+                { "key": "vehicleColor", "value": "Silver", "type": "text" },
+                { "key": "profileImage", "type": "file", "src": [], "disabled": true }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/drivers/me/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "drivers", "me", "profile"]
+            }
+          }
+        },
+        {
+          "name": "Set Availability Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{driverToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"available\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/drivers/me/availability",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "drivers", "me", "availability"]
+            },
+            "description": "Status options: `available` | `busy` | `offline`"
+          }
+        },
+        {
+          "name": "Update My Location (GPS)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{driverToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 32.0853,\n  \"longitude\": 34.7818\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/drivers/me/location",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "drivers", "me", "location"]
+            },
+            "description": "Send current GPS location (call every 30 seconds from mobile app)."
+          }
+        },
+        {
+          "name": "Get My Trips",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{driverToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/drivers/me/trips?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "drivers", "me", "trips"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "", "disabled": true, "description": "pending|accepted|in_progress|completed|cancelled" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get My Financial History",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{driverToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/drivers/me/financials?period=month",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "drivers", "me", "financials"],
+              "query": [
+                { "key": "period", "value": "month", "description": "week | month | year" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🚙 Trips",
+      "description": "Trip lifecycle: create → accept → start → complete",
+      "item": [
+        {
+          "name": "📍 Customer: Create Trip Request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const res = pm.response.json();",
+                  "  pm.collectionVariables.set('tripId', res.data._id);",
+                  "  console.log('Trip ID saved:', res.data._id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tripType\": \"towing\",\n  \"pickupAddress\": \"Herzl St 45, Tel Aviv\",\n  \"pickupLat\": 32.0647,\n  \"pickupLng\": 34.7736,\n  \"dropoffAddress\": \"Central Garage, Petah Tikva\",\n  \"dropoffLat\": 32.0875,\n  \"dropoffLng\": 34.8878,\n  \"vehicleInfo\": {\n    \"make\": \"Toyota\",\n    \"model\": \"Corolla\",\n    \"color\": \"White\",\n    \"licensePlate\": \"12-34-567\",\n    \"year\": 2020\n  },\n  \"price\": 350,\n  \"paymentMethod\": \"cash\",\n  \"notes\": \"Car broke down near the gas station\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips"]
+            },
+            "description": "tripType options: `towing` | `roadside` | `flatbed` | `new_booking`\npaymentMethod: `cash` | `card` | `wallet`"
+          }
+        },
+        {
+          "name": "📋 Customer: Get My Trips",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips/my?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips", "my"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "", "disabled": true, "description": "pending|accepted|in_progress|completed|cancelled" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "🔍 Get Trip Details (Any Role)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips/{{tripId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips", "{{tripId}}"]
+            },
+            "description": "Works for customer, driver, and admin (each sees their own trips)"
+          }
+        },
+        {
+          "name": "❌ Customer: Cancel Trip",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Found another solution\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips/{{tripId}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips", "{{tripId}}", "cancel"]
+            },
+            "description": "Only works when trip is in `pending` or `accepted` status"
+          }
+        },
+        {
+          "name": "⭐ Customer: Rate Trip",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rating\": 5,\n  \"review\": \"Excellent service, very professional driver!\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips/{{tripId}}/rate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips", "{{tripId}}", "rate"]
+            },
+            "description": "Rating 1-5. Only for completed trips. Can only rate once."
+          }
+        },
+        {
+          "name": "✅ Driver: Accept Trip",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{driverToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips/{{tripId}}/accept",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips", "{{tripId}}", "accept"]
+            },
+            "description": "Driver must be in `available` status to accept. Auto-sets driver to `busy`."
+          }
+        },
+        {
+          "name": "🚫 Driver: Reject Trip",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{driverToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Too far from my location\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips/{{tripId}}/reject",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips", "{{tripId}}", "reject"]
+            }
+          }
+        },
+        {
+          "name": "▶️ Driver: Start Trip",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{driverToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips/{{tripId}}/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips", "{{tripId}}", "start"]
+            },
+            "description": "Changes status from `accepted` → `in_progress`"
+          }
+        },
+        {
+          "name": "🏁 Driver: Complete Trip",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{driverToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"finalPrice\": 420\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips/{{tripId}}/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips", "{{tripId}}", "complete"]
+            },
+            "description": "Completes the trip, creates transaction record, updates driver earnings & stats. `finalPrice` can differ from initial price."
+          }
+        },
+        {
+          "name": "📊 Admin: Get All Trips",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "status", "value": "", "disabled": true, "description": "pending|accepted|in_progress|completed|cancelled" },
+                { "key": "tripType", "value": "", "disabled": true, "description": "towing|roadside|flatbed|new_booking" },
+                { "key": "search", "value": "", "disabled": true, "description": "Search by trip#, pickup/dropoff address" },
+                { "key": "driverId", "value": "", "disabled": true },
+                { "key": "customerId", "value": "", "disabled": true },
+                { "key": "fromDate", "value": "", "disabled": true, "description": "e.g. 2025-06-01" },
+                { "key": "toDate", "value": "", "disabled": true, "description": "e.g. 2025-06-30" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "❌ Admin: Cancel Trip",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Customer requested via support\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips/{{tripId}}/admin-cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips", "{{tripId}}", "admin-cancel"]
+            }
+          }
+        },
+        {
+          "name": "🔄 Admin: Assign Driver to Trip",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driverId\": \"{{driverId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips/{{tripId}}/assign-driver",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips", "{{tripId}}", "assign-driver"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "👤 Customers",
+      "description": "Customer profile (self) + Admin customer management",
+      "item": [
+        {
+          "name": "Customer: Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/me/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "customers", "me", "profile"]
+            }
+          }
+        },
+        {
+          "name": "Customer: Update My Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "name", "value": "Dan Cohen Updated", "type": "text" },
+                { "key": "email", "value": "dan.new@example.com", "type": "text" },
+                { "key": "city", "value": "Tel Aviv", "type": "text" },
+                { "key": "profileImage", "type": "file", "src": [], "disabled": true }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/me/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "customers", "me", "profile"]
+            }
+          }
+        },
+        {
+          "name": "Customer: Change Password",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"password123\",\n  \"newPassword\": \"newpassword456\",\n  \"confirmPassword\": \"newpassword456\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/me/change-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "customers", "me", "change-password"]
+            }
+          }
+        },
+        {
+          "name": "Admin: Get All Customers",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "customers"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "search", "value": "", "disabled": true, "description": "Search name, phone, email" },
+                { "key": "city", "value": "", "disabled": true },
+                { "key": "status", "value": "", "disabled": true, "description": "active | blocked" },
+                { "key": "fromDate", "value": "", "disabled": true },
+                { "key": "toDate", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Admin: Get Customer by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/{{customerId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "customers", "{{customerId}}"]
+            }
+          }
+        },
+        {
+          "name": "Admin: Block / Unblock Customer",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/{{customerId}}/toggle-block",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "customers", "{{customerId}}", "toggle-block"]
+            }
+          }
+        },
+        {
+          "name": "Admin: Toggle VIP Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/{{customerId}}/toggle-vip",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "customers", "{{customerId}}", "toggle-vip"]
+            },
+            "description": "Marks customer as VIP (star badge in support chat)"
+          }
+        },
+        {
+          "name": "Admin: Delete Customer",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/customers/{{customerId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "customers", "{{customerId}}"]
+            },
+            "description": "⚠️ Permanently deletes customer account."
+          }
+        }
+      ]
+    },
+    {
+      "name": "💬 Support",
+      "description": "Customer service tickets and chat (from Figma screen 7)",
+      "item": [
+        {
+          "name": "Customer: Create Support Ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const res = pm.response.json();",
+                  "  pm.collectionVariables.set('ticketId', res.data._id);",
+                  "  console.log('Ticket ID saved:', res.data._id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Driver has not arrived yet\",\n  \"message\": \"Hello, I booked a tow truck 45 minutes ago and the driver still hasn't arrived. What's happening?\",\n  \"tripId\": \"{{tripId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/support",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "support"]
+            },
+            "description": "`tripId` is optional — attach a trip to the ticket for context."
+          }
+        },
+        {
+          "name": "Customer: Get My Tickets",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/support/my?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "support", "my"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Customer: Send Message in Ticket",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"I still haven't received any update. This is very frustrating!\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/support/{{ticketId}}/message",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "support", "{{ticketId}}", "message"]
+            }
+          }
+        },
+        {
+          "name": "Admin: Get All Tickets",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/support?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "support"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "", "disabled": true, "description": "open|in_progress|resolved|closed" },
+                { "key": "priority", "value": "", "disabled": true, "description": "normal|high|urgent" },
+                { "key": "search", "value": "", "disabled": true, "description": "Search by ticket# or subject" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Admin: Get Ticket Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/support/{{ticketId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "support", "{{ticketId}}"]
+            },
+            "description": "Returns full ticket with chat history, customer profile, and recent trips."
+          }
+        },
+        {
+          "name": "Admin: Reply to Ticket",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Hello! I found the driver is on his way and will arrive in 8 minutes. We apologize for the delay!\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/support/{{ticketId}}/reply",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "support", "{{ticketId}}", "reply"]
+            }
+          }
+        },
+        {
+          "name": "Admin: Update Ticket Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"resolved\",\n  \"priority\": \"normal\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/support/{{ticketId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "support", "{{ticketId}}", "status"]
+            },
+            "description": "status: `open` | `in_progress` | `resolved` | `closed`\npriority: `normal` | `high` | `urgent`"
+          }
+        },
+        {
+          "name": "Admin: Quick Action - Cancel Trip",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"cancel_trip\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/support/{{ticketId}}/quick-action",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "support", "{{ticketId}}", "quick-action"]
+            },
+            "description": "Quick actions from Figma support screen:\n- `cancel_trip` — Cancel the trip linked to this ticket\n- `mark_vip` — Mark customer as VIP\n- `transfer_driver` — Assign another available driver"
+          }
+        },
+        {
+          "name": "Admin: Quick Action - Mark VIP",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"mark_vip\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/support/{{ticketId}}/quick-action",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "support", "{{ticketId}}", "quick-action"]
+            }
+          }
+        },
+        {
+          "name": "Admin: Quick Action - Transfer Driver",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"transfer_driver\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/support/{{ticketId}}/quick-action",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "support", "{{ticketId}}", "quick-action"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "📊 Analytics (Admin)",
+      "description": "Dashboard stats and financial reports",
+      "item": [
+        {
+          "name": "Get Dashboard Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/dashboard",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", "dashboard"]
+            },
+            "description": "Returns: avg rating, available drivers, today revenue, today trips, total stats, weekly revenue trend, trip type distribution, recent trips, top drivers."
+          }
+        },
+        {
+          "name": "Get Financial Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/financials?period=month",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", "financials"],
+              "query": [
+                { "key": "period", "value": "month", "description": "week | month | year" },
+                { "key": "fromDate", "value": "", "disabled": true, "description": "e.g. 2025-06-01 (overrides period)" },
+                { "key": "toDate", "value": "", "disabled": true, "description": "e.g. 2025-06-30" }
+              ]
+            },
+            "description": "Returns: revenue summary, daily trend chart data, per-driver commission table, recent transactions."
+          }
+        },
+        {
+          "name": "Mark Driver Payment as Paid",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"paid\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/financials/driver/{{driverId}}/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", "financials", "driver", "{{driverId}}", "payment"]
+            },
+            "description": "Update driver payment status. status: `paid` | `pending` | `overdue`"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔔 Notifications",
+      "description": "Push notifications for all users",
+      "item": [
+        {
+          "name": "Get My Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "notifications"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Works for any role (customer, driver, admin). Returns notifications + unread count."
+          }
+        },
+        {
+          "name": "Mark Notification as Read",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/{{notificationId}}/read",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "notifications", "{{notificationId}}", "read"]
+            }
+          }
+        },
+        {
+          "name": "Mark All Notifications as Read",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/mark-all-read",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "notifications", "mark-all-read"]
+            }
+          }
+        },
+        {
+          "name": "Delete Notification",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/{{notificationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "notifications", "{{notificationId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "❤️ Health Check",
+      "item": [
+        {
+          "name": "Server Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": ["{{baseUrl}}"],
+              "path": [""]
+            },
+            "description": "Verify server is running and see all available routes."
+          }
+        }
+      ]
+    }
+  ]
+}
