@@ -6,7 +6,7 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:5000", "type": "string" },
+    { "key": "baseUrl", "value": "http://localhost:5001", "type": "string" },
     { "key": "adminToken", "value": "", "type": "string" },
     { "key": "driverToken", "value": "", "type": "string" },
     { "key": "customerToken", "value": "", "type": "string" },
@@ -86,20 +86,72 @@
           }
         },
         {
-          "name": "Verify OTP",
+          "name": "Customer: Request OTP (App Login)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const res = pm.response.json();",
+                  "  console.log('Dev OTP:', res.data.devOtp);",
+                  "  pm.collectionVariables.set('_customerPhone', res.data.phoneNumber);",
+                  "  if (res.data.devOtp) pm.collectionVariables.set('_devOtp', res.data.devOtp);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phoneNumber\": \"0501234567\",\n  \"otp\": \"123456\"\n}"
+              "raw": "{\n  \"phoneNumber\": \"+972501234567\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/customer/otp-request",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "customer", "otp-request"]
+            },
+            "description": "Passwordless login used by the customer Flutter app (Figma flow). Auto-registers the phone as a customer on first use and sends an OTP. In dev mode the OTP is returned as `devOtp` (auto-saved to `_devOtp`). Then call Verify OTP."
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const res = pm.response.json();",
+                  "  if (res.data.role === 'customer') {",
+                  "    pm.collectionVariables.set('customerToken', res.data.accessToken);",
+                  "    pm.collectionVariables.set('customerId', res.data._id);",
+                  "    console.log('Customer token saved');",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{_customerPhone}}\",\n  \"otp\": \"{{_devOtp}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/verify-otp",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "auth", "verify-otp"]
             },
-            "description": "Verify OTP sent to phone. Use the OTP returned from register response (dev mode)."
+            "description": "Verify OTP sent to phone. Uses `_customerPhone` + `_devOtp` saved by 'Customer: Request OTP'. On success the customer token is auto-saved."
           }
         },
         {
@@ -525,8 +577,29 @@
     },
     {
       "name": "🚙 Trips",
-      "description": "Trip lifecycle: create → accept → start → complete",
+      "description": "Trip lifecycle: estimate → create → accept → start → complete",
       "item": [
+        {
+          "name": "💰 Customer: Price Estimate",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pickupLat\": 32.0647,\n  \"pickupLng\": 34.7736,\n  \"dropoffLat\": 32.0875,\n  \"dropoffLng\": 34.8878\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips/estimate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips", "estimate"]
+            },
+            "description": "Returns distanceKm, durationMinutes and the price breakdown (towingFee + serviceFee + vat = total) shown on the app's payment screen. Called before creating the trip."
+          }
+        },
         {
           "name": "📍 Customer: Create Trip Request",
           "event": [
@@ -595,6 +668,21 @@
               "path": ["api", "v1", "trips", "{{tripId}}"]
             },
             "description": "Works for customer, driver, and admin (each sees their own trips)"
+          }
+        },
+        {
+          "name": "🛰 Customer: Driver Live Location",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/trips/{{tripId}}/driver-location",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "trips", "{{tripId}}", "driver-location"]
+            },
+            "description": "Live location + ETA of the assigned driver. The tracking screen polls this every 5s. Returns `driver: null` while the trip is still pending."
           }
         },
         {

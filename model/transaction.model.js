@@ -51,7 +51,7 @@ const transactionSchema = new Schema(
   { timestamps: true }
 );
 
-transactionSchema.pre("save", async function (next) {
+transactionSchema.pre("save", async function () {
   if (!this.transactionId) {
     const count = await mongoose.model("Transaction").countDocuments();
     this.transactionId = `TX${String(count + 1).padStart(6, "0")}`;
@@ -60,7 +60,6 @@ transactionSchema.pre("save", async function (next) {
     this.commissionAmount = (this.amount * this.commissionPercent) / 100;
     this.driverEarnings = this.amount - this.commissionAmount;
   }
-  next();
 });
 
 const Transaction = mongoose.model("Transaction", transactionSchema);

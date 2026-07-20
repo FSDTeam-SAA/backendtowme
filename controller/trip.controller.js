@@ -8,6 +8,124 @@ import catchAsync from "../utils/catchAsync.js";
 import httpStatus from "http-status";
 import sendResponse from "../utils/sendResponse.js";
 
+// ============ CUSTOMER: PRICE ESTIMATE ============
+
+const PRICING = {
+  basePrice: 150,     // ₪ base towing fee
+  perKm: 12,          // ₪ per km
+  serviceFee: 25,     // ₪ fixed platform fee
+  vatPercent: 18,     // Israeli VAT
+  avgSpeedKmh: 40,    // for duration estimate
+  pickupBufferMin: 12,
+};
+
+const haversineKm = (lat1, lng1, lat2, lng2) => {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
+export const estimateTrip = catchAsync(async (req, res) => {
+  const { pickupLat, pickupLng, dropoffLat, dropoffLng } = req.body;
+
+  if ([pickupLat, pickupLng, dropoffLat, dropoffLng].some((v) => v === undefined || v === null)) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Pickup and dropoff coordinates are required");
+  }
+
+  const distanceKm = Math.round(
+    haversineKm(Number(pickupLat), Number(pickupLng), Number(dropoffLat), Number(dropoffLng)) * 10
+  ) / 10;
+
+  const towingFee = Math.round(PRICING.basePrice + distanceKm * PRICING.perKm);
+  const serviceFee = PRICING.serviceFee;
+  const vat = Math.round(((towingFee + serviceFee) * PRICING.vatPercent) / 100);
+  const total = towingFee + serviceFee + vat;
+  const durationMinutes = Math.round((distanceKm / PRICING.avgSpeedKmh) * 60 + PRICING.pickupBufferMin);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Trip estimate calculated",
+    data: {
+      distanceKm,
+      durationMinutes,
+      towingFee,
+      serviceFee,
+      vat,
+      vatPercent: PRICING.vatPercent,
+      total,
+      currency: "ILS",
+    },
+  });
+});
+
+// ============ CUSTOMER: DRIVER LIVE LOCATION ============
+
+export const getTripDriverLocation = catchAsync(async (req, res) => {
+  const { id } = req.params;
+
+  const trip = await Trip.findById(id).populate(
+    "driverId",
+    "firstName lastName phoneNumber profileImage vehicleType licenseNumber rating currentLocation"
+  );
+
+  if (!trip) {
+    throw new AppError(httpStatus.NOT_FOUND, "Trip not found");
+  }
+
+  const isOwner = trip.customerId?.toString() === req.user._id.toString();
+  if (!isOwner && req.user.role !== "admin") {
+    throw new AppError(httpStatus.FORBIDDEN, "Access denied");
+  }
+
+  if (!trip.driverId) {
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: "No driver assigned yet",
+      data: { status: trip.status, driver: null },
+    });
+    return;
+  }
+
+  const driver = trip.driverId;
+  const [lng, lat] = driver.currentLocation?.coordinates || [0, 0];
+
+  let etaMinutes = null;
+  const [pickupLng, pickupLat] = trip.pickupLocation?.coordinates?.coordinates || [0, 0];
+  if (lat && lng && pickupLat && pickupLng) {
+    const km = haversineKm(lat, lng, pickupLat, pickupLng);
+    etaMinutes = Math.max(1, Math.round((km / PRICING.avgSpeedKmh) * 60));
+  }
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Driver location fetched",
+    data: {
+      status: trip.status,
+      etaMinutes,
+      driver: {
+        _id: driver._id,
+        firstName: driver.firstName,
+        lastName: driver.lastName,
+        phoneNumber: driver.phoneNumber,
+        profileImage: driver.profileImage,
+        vehicleType: driver.vehicleType,
+        licenseNumber: driver.licenseNumber,
+        rating: driver.rating,
+        lat,
+        lng,
+      },
+    },
+  });
+});
+
 // ============ CUSTOMER: CREATE TRIP REQUEST ============
 
 export const createTrip = catchAsync(async (req, res) => {
@@ -15,6 +133,7 @@ export const createTrip = catchAsync(async (req, res) => {
     tripType, pickupAddress, pickupLat, pickupLng,
     dropoffAddress, dropoffLat, dropoffLng,
     vehicleInfo, price, paymentMethod, notes,
+    estimatedDistance, estimatedDuration,
   } = req.body;
 
   if (!pickupAddress || !dropoffAddress) {
@@ -40,6 +159,8 @@ export const createTrip = catchAsync(async (req, res) => {
     },
     vehicleInfo: vehicleInfo || {},
     price: price ? Number(price) : 0,
+    estimatedDistance: estimatedDistance ? Number(estimatedDistance) : 0,
+    estimatedDuration: estimatedDuration ? Number(estimatedDuration) : 0,
     paymentMethod: paymentMethod || "cash",
     notes: notes || "",
     status: "pending",
@@ -52,6 +173,20 @@ export const createTrip = catchAsync(async (req, res) => {
     type: "new_trip",
     relatedId: trip._id,
   });
+
+  // Notify available drivers about new pending trip
+  const availableDrivers = await Driver.find({ availabilityStatus: "available" });
+  await Promise.all(
+    availableDrivers.map((driver) =>
+      Notification.create({
+        userId: driver.userId,
+        title: "קריאה חדשה",
+        message: `קריאת גרירה חדשה: ${pickupAddress} → ${dropoffAddress}`,
+        type: "new_trip",
+        relatedId: trip._id,
+      })
+    )
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
@@ -108,7 +243,9 @@ export const getTripById = catchAsync(async (req, res) => {
 
   if (req.user.role === "driver") {
     const driver = await Driver.findOne({ userId: req.user._id });
-    isDriver = driver && trip.driverId?._id?.toString() === driver._id.toString();
+    const isAssignedDriver = driver && trip.driverId?._id?.toString() === driver._id.toString();
+    const isPendingTrip = trip.status === "pending" && !trip.driverId;
+    isDriver = isAssignedDriver || isPendingTrip;
   }
 
   if (!isCustomer && !isAdmin && !isDriver) {
@@ -199,10 +336,42 @@ export const rateTrip = catchAsync(async (req, res) => {
   });
 });
 
+// ============ DRIVER: GET PENDING TRIPS ============
+
+export const getPendingTrips = catchAsync(async (req, res) => {
+  const { page = 1, limit = 20 } = req.query;
+  const skip = (Number(page) - 1) * Number(limit);
+
+  const driver = await Driver.findOne({ userId: req.user._id });
+  if (!driver) {
+    throw new AppError(httpStatus.NOT_FOUND, "Driver profile not found");
+  }
+
+  const query = { status: "pending", driverId: null };
+
+  const [trips, total] = await Promise.all([
+    Trip.find(query)
+      .populate("customerId", "name phoneNumber profileImage")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit)),
+    Trip.countDocuments(query),
+  ]);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Pending trips fetched",
+    data: trips,
+    meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
+  });
+});
+
 // ============ DRIVER: ACCEPT TRIP ============
 
 export const acceptTrip = catchAsync(async (req, res) => {
   const { id } = req.params;
+  const { price } = req.body;
 
   const driver = await Driver.findOne({ userId: req.user._id });
   if (!driver) {
@@ -213,7 +382,7 @@ export const acceptTrip = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, "You must be available to accept trips");
   }
 
-  const trip = await Trip.findOne({ _id: id, status: "pending" });
+  const trip = await Trip.findOne({ _id: id, status: "pending", driverId: null });
   if (!trip) {
     throw new AppError(httpStatus.NOT_FOUND, "Trip not found or already taken");
   }
@@ -221,6 +390,10 @@ export const acceptTrip = catchAsync(async (req, res) => {
   trip.driverId = driver._id;
   trip.status = "accepted";
   trip.acceptedAt = new Date();
+  // Driver may adjust the price when accepting (editable price on the call card).
+  if (price !== undefined && price !== null && Number(price) > 0) {
+    trip.price = Number(price);
+  }
   await trip.save();
 
   driver.availabilityStatus = "busy";
@@ -253,8 +426,24 @@ export const rejectTrip = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Driver not found");
   }
 
-  const trip = await Trip.findOne({ _id: id, driverId: driver._id, status: "accepted" });
+  const trip = await Trip.findById(id);
   if (!trip) {
+    throw new AppError(httpStatus.NOT_FOUND, "Trip not found");
+  }
+
+  // Decline a pending trip offer (before accepting)
+  if (trip.status === "pending" && !trip.driverId) {
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: "Trip declined",
+      data: null,
+    });
+    return;
+  }
+
+  // Reject an already accepted trip
+  if (trip.status !== "accepted" || trip.driverId?.toString() !== driver._id.toString()) {
     throw new AppError(httpStatus.NOT_FOUND, "Trip not found");
   }
 
@@ -305,7 +494,11 @@ export const startTrip = catchAsync(async (req, res) => {
 
 export const completeTrip = catchAsync(async (req, res) => {
   const { id } = req.params;
-  const { finalPrice } = req.body;
+  const {
+    finalPrice,
+    distanceKm, endTime, vehicleCondition, comments,
+    vehiclePlacedCorrectly, customerConfirmed, noAdditionalDamage,
+  } = req.body;
 
   const driver = await Driver.findOne({ userId: req.user._id });
   if (!driver) {
@@ -322,6 +515,15 @@ export const completeTrip = catchAsync(async (req, res) => {
   trip.status = "completed";
   trip.completedAt = new Date();
   trip.paymentStatus = "paid";
+  trip.completionReport = {
+    distanceKm: distanceKm !== undefined && distanceKm !== null && distanceKm !== "" ? Number(distanceKm) : null,
+    endTime: endTime || "",
+    vehicleCondition: vehicleCondition || "",
+    comments: comments || "",
+    vehiclePlacedCorrectly: Boolean(vehiclePlacedCorrectly),
+    customerConfirmed: Boolean(customerConfirmed),
+    noAdditionalDamage: Boolean(noAdditionalDamage),
+  };
   await trip.save();
 
   // Create transaction

@@ -55,12 +55,11 @@ const supportTicketSchema = new Schema(
   { timestamps: true }
 );
 
-supportTicketSchema.pre("save", async function (next) {
+supportTicketSchema.pre("save", async function () {
   if (!this.ticketNumber) {
     const count = await mongoose.model("SupportTicket").countDocuments();
     this.ticketNumber = `#${String(count + 1).padStart(4, "0")}`;
   }
-  next();
 });
 
 const SupportTicket = mongoose.model("SupportTicket", supportTicketSchema);

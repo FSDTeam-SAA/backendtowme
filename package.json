@@ -9,7 +9,14 @@
     "dev": "nodemon server.js",
     "seed:admin": "node utils/seedAdmin.js"
   },
-  "keywords": ["tow", "roadside", "assistance", "nodejs", "express", "mongodb"],
+  "keywords": [
+    "tow",
+    "roadside",
+    "assistance",
+    "nodejs",
+    "express",
+    "mongodb"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -25,7 +32,7 @@
     "mongoose": "^9.2.4",
     "multer": "^2.1.0",
     "nanoid": "^5.1.6",
-    "nodemailer": "^8.0.1",
+    "nodemailer": "^9.0.3",
     "path": "^0.12.7",
     "uuid": "^13.0.0",
     "validator": "^13.15.26"

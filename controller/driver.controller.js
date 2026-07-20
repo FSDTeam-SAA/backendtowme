@@ -29,14 +29,18 @@ export const createDriver = catchAsync(async (req, res) => {
   }
 
   // Create user account
-  const user = await User.create({
+  const userPayload = {
     name: `${firstName} ${lastName}`,
     phoneNumber: phoneNumber.trim(),
-    email: email ? email.toLowerCase().trim() : null,
     password,
     role: "driver",
     isPhoneVerified: true,
-  });
+  };
+  if (email?.trim()) {
+    userPayload.email = email.toLowerCase().trim();
+  }
+
+  const user = await User.create(userPayload);
 
   // Handle profile image
   let profileImage = { public_id: "", url: "" };
@@ -277,7 +281,10 @@ export const getDriverProfile = catchAsync(async (req, res) => {
 // ============ DRIVER: UPDATE MY PROFILE ============
 
 export const updateDriverProfile = catchAsync(async (req, res) => {
-  const { firstName, lastName, email, vehicleColor } = req.body;
+  const {
+    firstName, lastName, email, vehicleColor,
+    phoneNumber, operatingArea, vehicleType, licenseNumber, vehicleYear,
+  } = req.body;
 
   const driver = await Driver.findOne({ userId: req.user._id });
   if (!driver) {
@@ -288,6 +295,17 @@ export const updateDriverProfile = catchAsync(async (req, res) => {
   if (lastName) driver.lastName = lastName.trim();
   if (email) driver.email = email.toLowerCase().trim();
   if (vehicleColor) driver.vehicleColor = vehicleColor;
+  if (phoneNumber) driver.phoneNumber = phoneNumber.trim();
+  if (operatingArea) {
+    driver.operatingArea = Array.isArray(operatingArea)
+      ? operatingArea
+      : String(operatingArea).split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  if (vehicleType && ["regular", "flatbed", "heavy"].includes(vehicleType)) {
+    driver.vehicleType = vehicleType;
+  }
+  if (licenseNumber) driver.licenseNumber = licenseNumber.trim();
+  if (vehicleYear) driver.vehicleYear = Number(vehicleYear);
 
   if (req.file) {
     const uploaded = await uploadOnCloudinary(req.file.buffer, { folder: "towme/drivers/profiles" });

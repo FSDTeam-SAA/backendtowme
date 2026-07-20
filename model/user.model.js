@@ -11,11 +11,8 @@ const userSchema = new Schema(
 
     email: {
       type: String,
-      unique: true,
       lowercase: true,
       trim: true,
-      sparse: true,
-      default: null,
     },
 
     phoneNumber: {
@@ -79,6 +76,14 @@ const userSchema = new Schema(
   },
   { timestamps: true }
 );
+
+userSchema.index({ email: 1 }, { unique: true, sparse: true });
+
+userSchema.pre("save", function () {
+  if (this.email == null || this.email === "") {
+    this.email = undefined;
+  }
+});
 
 // hash password before save
 userSchema.pre("save", async function () {

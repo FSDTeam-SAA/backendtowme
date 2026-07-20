@@ -88,21 +88,31 @@ const tripSchema = new Schema(
     },
 
     notes: { type: String, default: "" },
+
+    // Driver's completion report (filled when finishing the tow)
+    completionReport: {
+      distanceKm: { type: Number, default: null },
+      endTime: { type: String, default: "" },
+      vehicleCondition: { type: String, default: "" },
+      comments: { type: String, default: "" },
+      vehiclePlacedCorrectly: { type: Boolean, default: false },
+      customerConfirmed: { type: Boolean, default: false },
+      noAdditionalDamage: { type: Boolean, default: false },
+    },
   },
   { timestamps: true }
 );
 
 // Auto-generate trip number
-tripSchema.pre("save", async function (next) {
+tripSchema.pre("save", async function () {
   if (!this.tripNumber) {
     const count = await mongoose.model("Trip").countDocuments();
     this.tripNumber = `TW${String(count + 1).padStart(4, "0")}`;
   }
-  next();
 });
 
-tripSchema.index({ pickupLocation: "2dsphere" });
-tripSchema.index({ dropoffLocation: "2dsphere" });
+tripSchema.index({ "pickupLocation.coordinates": "2dsphere" });
+tripSchema.index({ "dropoffLocation.coordinates": "2dsphere" });
 
 const Trip = mongoose.model("Trip", tripSchema);
 export default Trip;
