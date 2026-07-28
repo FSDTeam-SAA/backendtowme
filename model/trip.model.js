@@ -89,6 +89,9 @@ const tripSchema = new Schema(
 
     notes: { type: String, default: "" },
 
+    // Drivers who declined this pending offer (so it is not shown to them again)
+    rejectedByDrivers: [{ type: Schema.Types.ObjectId, ref: "Driver" }],
+
     // Driver's completion report (filled when finishing the tow)
     completionReport: {
       distanceKm: { type: Number, default: null },

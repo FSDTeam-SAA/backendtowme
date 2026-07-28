@@ -315,11 +315,16 @@ export const updateDriverProfile = catchAsync(async (req, res) => {
 
   await driver.save();
 
+  const updated = await Driver.findById(driver._id).populate(
+    "userId",
+    "name phoneNumber email profileImage"
+  );
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Profile updated successfully",
-    data: driver,
+    data: updated,
   });
 });
 

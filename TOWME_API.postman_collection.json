@@ -735,13 +735,17 @@
               { "key": "Authorization", "value": "Bearer {{driverToken}}" },
               { "key": "Content-Type", "value": "application/json" }
             ],
-            "body": { "mode": "raw", "raw": "{}" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"price\": 420\n}",
+              "options": { "raw": { "language": "json" } }
+            },
             "url": {
               "raw": "{{baseUrl}}/api/v1/trips/{{tripId}}/accept",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "trips", "{{tripId}}", "accept"]
             },
-            "description": "Driver must be in `available` status to accept. Auto-sets driver to `busy`."
+            "description": "Driver must be in `available` status to accept. Optional `price` overrides trip price. Auto-sets driver to `busy`."
           }
         },
         {
@@ -761,7 +765,8 @@
               "raw": "{{baseUrl}}/api/v1/trips/{{tripId}}/reject",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "trips", "{{tripId}}", "reject"]
-            }
+            },
+            "description": "Pending: hides offer from this driver. Accepted: releases trip back to pending pool and hides from this driver."
           }
         },
         {
@@ -791,7 +796,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"finalPrice\": 420\n}",
+              "raw": "{\n  \"finalPrice\": 420,\n  \"distanceKm\": 12.5,\n  \"endTime\": \"14:30\",\n  \"vehicleCondition\": \"Good\",\n  \"comments\": \"Delivered safely\",\n  \"vehiclePlacedCorrectly\": true,\n  \"customerConfirmed\": true,\n  \"noAdditionalDamage\": true\n}",
               "options": { "raw": { "language": "json" } }
             },
             "url": {
@@ -799,7 +804,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "trips", "{{tripId}}", "complete"]
             },
-            "description": "Completes the trip, creates transaction record, updates driver earnings & stats. `finalPrice` can differ from initial price."
+            "description": "Requires `in_progress`. Completes trip, creates transaction, updates driver earnings. `finalPrice` optional."
           }
         },
         {

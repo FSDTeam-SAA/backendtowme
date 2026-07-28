@@ -347,7 +347,11 @@ export const getPendingTrips = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Driver profile not found");
   }
 
-  const query = { status: "pending", driverId: null };
+  const query = {
+    status: "pending",
+    driverId: null,
+    rejectedByDrivers: { $nin: [driver._id] },
+  };
 
   const [trips, total] = await Promise.all([
     Trip.find(query)
@@ -407,6 +411,8 @@ export const acceptTrip = catchAsync(async (req, res) => {
     relatedId: trip._id,
   });
 
+  await trip.populate("customerId", "name phoneNumber profileImage");
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -431,8 +437,13 @@ export const rejectTrip = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Trip not found");
   }
 
-  // Decline a pending trip offer (before accepting)
+  // Decline a pending trip offer (before accepting) — hide from this driver only
   if (trip.status === "pending" && !trip.driverId) {
+    await Trip.findByIdAndUpdate(trip._id, {
+      $addToSet: { rejectedByDrivers: driver._id },
+      ...(reason ? { cancellationReason: reason } : {}),
+    });
+
     sendResponse(res, {
       statusCode: httpStatus.OK,
       success: true,
@@ -442,15 +453,20 @@ export const rejectTrip = catchAsync(async (req, res) => {
     return;
   }
 
-  // Reject an already accepted trip
+  // Reject an already accepted trip — release back to pool without offering again to this driver
   if (trip.status !== "accepted" || trip.driverId?.toString() !== driver._id.toString()) {
     throw new AppError(httpStatus.NOT_FOUND, "Trip not found");
   }
 
-  trip.driverId = null;
-  trip.status = "pending";
-  trip.cancellationReason = reason || "";
-  await trip.save();
+  await Trip.findByIdAndUpdate(trip._id, {
+    $set: {
+      driverId: null,
+      status: "pending",
+      cancellationReason: reason || "",
+    },
+    $unset: { acceptedAt: 1 },
+    $addToSet: { rejectedByDrivers: driver._id },
+  });
 
   driver.availabilityStatus = "available";
   await driver.save();
@@ -481,6 +497,8 @@ export const startTrip = catchAsync(async (req, res) => {
   trip.status = "in_progress";
   trip.startedAt = new Date();
   await trip.save();
+
+  await trip.populate("customerId", "name phoneNumber profileImage");
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
