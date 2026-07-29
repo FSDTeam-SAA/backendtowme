@@ -46,6 +46,13 @@ const driverSchema = new Schema(
       public_id: { type: String, default: "" },
       url: { type: String, default: "" },
     },
+    cargoInsuranceDocument: {
+      public_id: { type: String, default: "" },
+      url: { type: String, default: "" },
+    },
+    vehicleRegistrationExpiresAt: { type: Date, default: null },
+    insuranceExpiresAt: { type: Date, default: null },
+    cargoInsuranceExpiresAt: { type: Date, default: null },
 
     // Account Settings
     username: { type: String, trim: true },

@@ -284,6 +284,7 @@ export const updateDriverProfile = catchAsync(async (req, res) => {
   const {
     firstName, lastName, email, vehicleColor,
     phoneNumber, operatingArea, vehicleType, licenseNumber, vehicleYear,
+    vehicleRegistrationExpiresAt, insuranceExpiresAt, cargoInsuranceExpiresAt,
   } = req.body;
 
   const driver = await Driver.findOne({ userId: req.user._id });
@@ -291,29 +292,99 @@ export const updateDriverProfile = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Driver profile not found");
   }
 
+  const userUpdates = {};
+
   if (firstName) driver.firstName = firstName.trim();
-  if (lastName) driver.lastName = lastName.trim();
-  if (email) driver.email = email.toLowerCase().trim();
+  if (lastName !== undefined) driver.lastName = String(lastName).trim();
+  if (firstName || lastName !== undefined) {
+    userUpdates.name = `${driver.firstName} ${driver.lastName}`.trim();
+  }
+
+  if (email !== undefined) {
+    const normalizedEmail = String(email).toLowerCase().trim();
+    driver.email = normalizedEmail;
+    userUpdates.email = normalizedEmail || undefined;
+  }
   if (vehicleColor) driver.vehicleColor = vehicleColor;
-  if (phoneNumber) driver.phoneNumber = phoneNumber.trim();
-  if (operatingArea) {
-    driver.operatingArea = Array.isArray(operatingArea)
-      ? operatingArea
-      : String(operatingArea).split(",").map((s) => s.trim()).filter(Boolean);
+  if (phoneNumber) {
+    driver.phoneNumber = phoneNumber.trim();
+    userUpdates.phoneNumber = phoneNumber.trim();
+  }
+  if (operatingArea !== undefined) {
+    if (operatingArea === "" || operatingArea === null) {
+      driver.operatingArea = [];
+    } else {
+      driver.operatingArea = Array.isArray(operatingArea)
+        ? operatingArea
+        : String(operatingArea).split(",").map((s) => s.trim()).filter(Boolean);
+    }
   }
   if (vehicleType && ["regular", "flatbed", "heavy"].includes(vehicleType)) {
     driver.vehicleType = vehicleType;
   }
   if (licenseNumber) driver.licenseNumber = licenseNumber.trim();
-  if (vehicleYear) driver.vehicleYear = Number(vehicleYear);
+  if (vehicleYear !== undefined && vehicleYear !== null && vehicleYear !== "") {
+    driver.vehicleYear = Number(vehicleYear);
+  }
 
-  if (req.file) {
-    const uploaded = await uploadOnCloudinary(req.file.buffer, { folder: "towme/drivers/profiles" });
-    driver.profileImage = { public_id: uploaded.public_id, url: uploaded.secure_url };
-    await User.findByIdAndUpdate(req.user._id, { profileImage: driver.profileImage });
+  if (vehicleRegistrationExpiresAt) {
+    driver.vehicleRegistrationExpiresAt = new Date(vehicleRegistrationExpiresAt);
+  }
+  if (insuranceExpiresAt) {
+    driver.insuranceExpiresAt = new Date(insuranceExpiresAt);
+  }
+  if (cargoInsuranceExpiresAt) {
+    driver.cargoInsuranceExpiresAt = new Date(cargoInsuranceExpiresAt);
+  }
+
+  const files = req.files || {};
+  const uploadDoc = async (fileList, folder) => {
+    if (!fileList?.[0]) return null;
+    const uploaded = await uploadOnCloudinary(fileList[0].buffer, { folder });
+    return { public_id: uploaded.public_id, url: uploaded.secure_url };
+  };
+
+  const profileImage = await uploadDoc(files.profileImage, "towme/drivers/profiles");
+  if (profileImage) {
+    driver.profileImage = profileImage;
+    userUpdates.profileImage = profileImage;
+  }
+
+  const vehicleRegistration = await uploadDoc(files.vehicleRegistration, "towme/drivers/docs");
+  if (vehicleRegistration) {
+    driver.vehicleRegistration = vehicleRegistration;
+    if (!driver.vehicleRegistrationExpiresAt) {
+      const d = new Date();
+      d.setFullYear(d.getFullYear() + 1);
+      driver.vehicleRegistrationExpiresAt = d;
+    }
+  }
+
+  const insuranceDocument = await uploadDoc(files.insuranceDocument, "towme/drivers/docs");
+  if (insuranceDocument) {
+    driver.insuranceDocument = insuranceDocument;
+    if (!driver.insuranceExpiresAt) {
+      const d = new Date();
+      d.setFullYear(d.getFullYear() + 1);
+      driver.insuranceExpiresAt = d;
+    }
+  }
+
+  const cargoInsuranceDocument = await uploadDoc(files.cargoInsuranceDocument, "towme/drivers/docs");
+  if (cargoInsuranceDocument) {
+    driver.cargoInsuranceDocument = cargoInsuranceDocument;
+    if (!driver.cargoInsuranceExpiresAt) {
+      const d = new Date();
+      d.setFullYear(d.getFullYear() + 1);
+      driver.cargoInsuranceExpiresAt = d;
+    }
   }
 
   await driver.save();
+
+  if (Object.keys(userUpdates).length > 0) {
+    await User.findByIdAndUpdate(req.user._id, userUpdates);
+  }
 
   const updated = await Driver.findById(driver._id).populate(
     "userId",
@@ -476,5 +547,43 @@ export const getDriverFinancials = catchAsync(async (req, res) => {
         allTimeEarnings: driver.totalEarnings,
       },
     },
+  });
+});
+
+// ============ DRIVER: CHANGE PASSWORD ============
+
+export const changeDriverPassword = catchAsync(async (req, res) => {
+  const { currentPassword, newPassword, confirmPassword } = req.body;
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    throw new AppError(httpStatus.BAD_REQUEST, "All password fields are required");
+  }
+
+  if (newPassword !== confirmPassword) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Passwords do not match");
+  }
+
+  if (newPassword.length < 6) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Password must be at least 6 characters");
+  }
+
+  const user = await User.findById(req.user._id).select("+password");
+  if (!user) {
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  const isMatch = await user.comparePassword(currentPassword);
+  if (!isMatch) {
+    throw new AppError(httpStatus.UNAUTHORIZED, "Current password is incorrect");
+  }
+
+  user.password = newPassword;
+  await user.save();
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Password changed successfully",
+    data: null,
   });
 });
