@@ -37,9 +37,13 @@ export const estimateTrip = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, "Pickup and dropoff coordinates are required");
   }
 
-  const distanceKm = Math.round(
-    haversineKm(Number(pickupLat), Number(pickupLng), Number(dropoffLat), Number(dropoffLng)) * 10
-  ) / 10;
+  const distanceRaw =
+    Math.round(
+      haversineKm(Number(pickupLat), Number(pickupLng), Number(dropoffLat), Number(dropoffLng)) * 10
+    ) / 10;
+  // Cap to Israel-scale distances so bad geocodes (e.g. overseas) don't create absurd fares.
+  const MAX_DISTANCE_KM = 200;
+  const distanceKm = Math.min(distanceRaw, MAX_DISTANCE_KM);
 
   const towingFee = Math.round(PRICING.basePrice + distanceKm * PRICING.perKm);
   const serviceFee = PRICING.serviceFee;
@@ -53,6 +57,8 @@ export const estimateTrip = catchAsync(async (req, res) => {
     message: "Trip estimate calculated",
     data: {
       distanceKm,
+      distanceUncappedKm: distanceRaw,
+      distanceCapped: distanceRaw > MAX_DISTANCE_KM,
       durationMinutes,
       towingFee,
       serviceFee,
@@ -140,6 +146,10 @@ export const createTrip = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, "Pickup and dropoff addresses are required");
   }
 
+  // Guard against absurd client prices (e.g. overseas geocode mistakes).
+  const MAX_TRIP_PRICE = 5000;
+  const safePrice = Math.min(Math.max(0, price ? Number(price) : 0), MAX_TRIP_PRICE);
+
   const trip = await Trip.create({
     customerId: req.user._id,
     tripType: tripType || "towing",
@@ -158,7 +168,7 @@ export const createTrip = catchAsync(async (req, res) => {
       },
     },
     vehicleInfo: vehicleInfo || {},
-    price: price ? Number(price) : 0,
+    price: safePrice,
     estimatedDistance: estimatedDistance ? Number(estimatedDistance) : 0,
     estimatedDuration: estimatedDuration ? Number(estimatedDuration) : 0,
     paymentMethod: paymentMethod || "cash",

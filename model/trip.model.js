@@ -47,6 +47,7 @@ const tripSchema = new Schema(
       color: { type: String, default: "" },
       licensePlate: { type: String, default: "" },
       year: { type: Number },
+      type: { type: String, default: "" }, // category: car / truck / motorcycle / etc.
     },
 
     // Pricing

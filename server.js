@@ -3,11 +3,17 @@ import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
 import cookieParser from "cookie-parser";
+import path from "path";
+import { fileURLToPath } from "url";
 import router from "./mainroute/index.js";
 import { createServer } from "http";
 import globalErrorHandler from "./middleware/globalErrorHandler.js";
 import notFound from "./middleware/notFound.js";
 import { syncUserIndexes } from "./utils/syncUserIndexes.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const publicDir = path.join(__dirname, "public");
 
 const app = express();
 
@@ -26,7 +32,7 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use("/public", express.static("public"));
+app.use("/public", express.static(publicDir));
 
 // Mount the main router
 app.use("/api/v1", router);

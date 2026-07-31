@@ -104,7 +104,11 @@ const uploadLocally = async (fileBuffer, options = {}) => {
   await fs.mkdir(dir, { recursive: true });
 
   const filename = `${Date.now()}-${uuidv4().slice(0, 8)}.jpg`;
-  await fs.writeFile(path.join(dir, filename), fileBuffer);
+  const filepath = path.join(dir, filename);
+  await fs.writeFile(filepath, fileBuffer);
+
+  // Verify the file landed on disk before returning a public URL.
+  await fs.access(filepath);
 
   const url = `${publicBaseUrl()}/public/${folder}/${filename}`;
   return {
