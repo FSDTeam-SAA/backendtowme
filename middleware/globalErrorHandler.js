@@ -2,6 +2,7 @@ import handleValidationError from "../errors/handleValidationError.js";
 import HandleCastError from "../errors/HandleCastError.js";
 import handleDuplicateError from "../errors/handleDuplicateError.js";
 import AppError from "./../errors/AppError.js";
+import { toHebrew } from "../utils/heLocale.js";
 
 const globalErrorHandler = (err, req, res, next) => {
   console.log({ GlobalError: err });
@@ -39,6 +40,12 @@ const globalErrorHandler = (err, req, res, next) => {
       },
     ];
   }
+
+  message = toHebrew(message);
+  errorSources = (errorSources || []).map((s) => ({
+    ...s,
+    message: toHebrew(s?.message),
+  }));
 
   return res.status(statusCode).json({
     success: false,

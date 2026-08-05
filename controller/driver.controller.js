@@ -495,7 +495,16 @@ export const getMyTrips = catchAsync(async (req, res) => {
     success: true,
     message: "Trips fetched",
     data: {
-      trips,
+      trips: trips.map((t) => {
+        const obj = typeof t.toObject === "function" ? t.toObject() : { ...t };
+        const customer = obj.customerId && typeof obj.customerId === "object" ? obj.customerId : null;
+        if (customer) {
+          obj.customerName = customer.name || "";
+          obj.customerPhone = customer.phoneNumber || customer.phone || "";
+          obj.customerPhoneNumber = obj.customerPhone;
+        }
+        return obj;
+      }),
       summary: {
         totalTrips: driver.totalTrips,
         todayTrips,

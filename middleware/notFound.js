@@ -1,7 +1,9 @@
+import { toHebrew } from "../utils/heLocale.js";
+
 const notFound = (req, res, next) => {
   return res.status(400).json({
     success: false,
-    message: "API Not Found !!",
+    message: toHebrew("API Not Found !!"),
     error: "",
   });
 };

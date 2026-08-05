@@ -30,6 +30,19 @@ const haversineKm = (lat1, lng1, lat2, lng2) => {
   return 2 * R * Math.asin(Math.sqrt(a));
 };
 
+/** Flatten populated customer onto trip JSON so apps always get phone/name. */
+const withCustomerContact = (tripDoc) => {
+  if (!tripDoc) return tripDoc;
+  const obj = typeof tripDoc.toObject === "function" ? tripDoc.toObject() : { ...tripDoc };
+  const customer = obj.customerId && typeof obj.customerId === "object" ? obj.customerId : null;
+  if (customer) {
+    obj.customerName = customer.name || obj.customerName || "";
+    obj.customerPhone = customer.phoneNumber || customer.phone || obj.customerPhone || "";
+    obj.customerPhoneNumber = obj.customerPhone;
+  }
+  return obj;
+};
+
 export const estimateTrip = catchAsync(async (req, res) => {
   const { pickupLat, pickupLng, dropoffLat, dropoffLng } = req.body;
 
@@ -178,8 +191,8 @@ export const createTrip = catchAsync(async (req, res) => {
 
   await Notification.create({
     userId: req.user._id,
-    title: "Trip Requested",
-    message: `Your trip #${trip.tripNumber} has been placed. Waiting for driver.`,
+    title: "בקשת נסיעה נשלחה",
+    message: `הנסיעה שלך #${trip.tripNumber} נקלטה. ממתין לנהג.`,
     type: "new_trip",
     relatedId: trip._id,
   });
@@ -266,11 +279,9 @@ export const getTripById = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Trip fetched",
-    data: trip,
+    data: withCustomerContact(trip),
   });
 });
-
-// ============ CUSTOMER: CANCEL TRIP ============
 
 export const cancelTripByCustomer = catchAsync(async (req, res) => {
   const { id } = req.params;
@@ -376,7 +387,7 @@ export const getPendingTrips = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Pending trips fetched",
-    data: trips,
+    data: trips.map(withCustomerContact),
     meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
   });
 });
@@ -415,8 +426,8 @@ export const acceptTrip = catchAsync(async (req, res) => {
 
   await Notification.create({
     userId: trip.customerId,
-    title: "Driver Accepted",
-    message: `Driver ${driver.firstName} ${driver.lastName} has accepted your trip #${trip.tripNumber}.`,
+    title: "הנהג קיבל את הקריאה",
+    message: `הנהג ${driver.firstName} ${driver.lastName} קיבל את הנסיעה שלך #${trip.tripNumber}.`,
     type: "trip_accepted",
     relatedId: trip._id,
   });
@@ -427,7 +438,7 @@ export const acceptTrip = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Trip accepted",
-    data: trip,
+    data: withCustomerContact(trip),
   });
 });
 
@@ -514,7 +525,7 @@ export const startTrip = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Trip started",
-    data: trip,
+    data: withCustomerContact(trip),
   });
 });
 
@@ -565,7 +576,7 @@ export const completeTrip = catchAsync(async (req, res) => {
     type: "trip_payment",
     paymentMethod: trip.paymentMethod,
     status: "completed",
-    description: `Trip #${trip.tripNumber} payment`,
+    description: `תשלום נסיעה #${trip.tripNumber}`,
   });
 
   // Update driver stats
@@ -577,8 +588,8 @@ export const completeTrip = catchAsync(async (req, res) => {
 
   await Notification.create({
     userId: trip.customerId,
-    title: "Trip Completed",
-    message: `Your trip #${trip.tripNumber} has been completed. Please rate your driver!`,
+    title: "הנסיעה הושלמה",
+    message: `הנסיעה שלך #${trip.tripNumber} הושלמה. אנא דרג את הנהג!`,
     type: "trip_completed",
     relatedId: trip._id,
   });
@@ -679,7 +690,7 @@ export const cancelTripByAdmin = catchAsync(async (req, res) => {
   }
 
   trip.status = "cancelled";
-  trip.cancellationReason = reason || "Cancelled by admin";
+  trip.cancellationReason = reason || "בוטל על ידי מנהל";
   trip.cancelledBy = "admin";
   trip.cancelledAt = new Date();
   await trip.save();

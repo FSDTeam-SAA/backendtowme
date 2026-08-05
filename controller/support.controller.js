@@ -228,7 +228,7 @@ export const quickAction = catchAsync(async (req, res) => {
       if (ticket.tripId && ["pending", "accepted"].includes(ticket.tripId.status)) {
         await Trip.findByIdAndUpdate(ticket.tripId._id, {
           status: "cancelled",
-          cancellationReason: "Cancelled via support",
+          cancellationReason: "בוטל דרך התמיכה",
           cancelledBy: "admin",
           cancelledAt: new Date(),
         });

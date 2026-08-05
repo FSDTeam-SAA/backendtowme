@@ -1,7 +1,9 @@
+import { toHebrew } from "./heLocale.js";
+
 const sendResponse = (res, data) => {
   const payload = {
     success: data.success,
-    message: data.message,
+    message: toHebrew(data.message),
     data: data.data,
   };
 

@@ -203,7 +203,7 @@ export const driverRegister = catchAsync(async (req, res) => {
   }
 
   const userPayload = {
-    name: `Driver ${normalizedPhone}`,
+    name: `נהג ${normalizedPhone}`,
     phoneNumber: normalizedPhone,
     password,
     role: "driver",
@@ -221,7 +221,7 @@ export const driverRegister = catchAsync(async (req, res) => {
     phoneNumber: normalizedPhone,
     email: email ? email.toLowerCase().trim() : "",
     vehicleType: "regular",
-    licenseNumber: "PENDING",
+    licenseNumber: "ממתין",
     availabilityStatus: "offline",
     isVerified: false,
   });

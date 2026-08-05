@@ -2,6 +2,14 @@ import Notification from "../model/notification.model.js";
 import catchAsync from "../utils/catchAsync.js";
 import httpStatus from "http-status";
 import sendResponse from "../utils/sendResponse.js";
+import { toHebrew } from "../utils/heLocale.js";
+
+function localizeNotification(doc) {
+  const n = typeof doc.toObject === "function" ? doc.toObject() : { ...doc };
+  n.title = toHebrew(n.title);
+  n.message = toHebrew(n.message);
+  return n;
+}
 
 export const getMyNotifications = catchAsync(async (req, res) => {
   const { page = 1, limit = 20 } = req.query;
@@ -20,7 +28,10 @@ export const getMyNotifications = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Notifications fetched",
-    data: { notifications, unreadCount },
+    data: {
+      notifications: notifications.map(localizeNotification),
+      unreadCount,
+    },
     meta: { total, page: Number(page), limit: Number(limit) },
   });
 });
