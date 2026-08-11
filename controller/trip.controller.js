@@ -9,14 +9,32 @@ import httpStatus from "http-status";
 import sendResponse from "../utils/sendResponse.js";
 
 // ============ CUSTOMER: PRICE ESTIMATE ============
+// Official towing price list (מחירון גרירות):
+//   1–10 km → 400, then +200 ₪ every 10 km up to 100 km.
+//   Over 100 km → 2200 + (km − 100) × 20 ₪.
+// Extras on base: rescue +400, Shabbat/holidays +50%, night 00:00–06:00 +50%.
+// VAT 18%. Platform service fee kept for the payment UI breakdown.
 
 const PRICING = {
-  basePrice: 150,     // ₪ base towing fee
-  perKm: 12,          // ₪ per km
-  serviceFee: 25,     // ₪ fixed platform fee
-  vatPercent: 18,     // Israeli VAT
-  avgSpeedKmh: 40,    // for duration estimate
+  serviceFee: 25, // ₪ fixed platform fee (app fee, not in towing list)
+  vatPercent: 18, // Israeli VAT
+  avgSpeedKmh: 40, // for duration estimate
   pickupBufferMin: 12,
+  rescueFee: 400,
+  over100PerKm: 20,
+  /** Inclusive upper-km → base price (before VAT / surcharges). */
+  distanceTiers: [
+    { maxKm: 10, price: 400 },
+    { maxKm: 20, price: 600 },
+    { maxKm: 30, price: 800 },
+    { maxKm: 40, price: 1000 },
+    { maxKm: 50, price: 1200 },
+    { maxKm: 60, price: 1400 },
+    { maxKm: 70, price: 1600 },
+    { maxKm: 80, price: 1800 },
+    { maxKm: 90, price: 2000 },
+    { maxKm: 100, price: 2200 },
+  ],
 };
 
 const haversineKm = (lat1, lng1, lat2, lng2) => {
@@ -28,6 +46,83 @@ const haversineKm = (lat1, lng1, lat2, lng2) => {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
+};
+
+/** Distance-tier base price from the official towing rate card. */
+const distanceBasePrice = (distanceKm) => {
+  const km = Math.max(0, Number(distanceKm) || 0);
+  if (km <= 0) return PRICING.distanceTiers[0].price;
+  for (const tier of PRICING.distanceTiers) {
+    if (km <= tier.maxKm) return tier.price;
+  }
+  const over = km - 100;
+  return 2200 + Math.ceil(over) * PRICING.over100PerKm;
+};
+
+/** Israel local parts — used for night / Shabbat windows. */
+const israelDateParts = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jerusalem",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? "";
+  const weekday = get("weekday"); // Mon, Tue, ...
+  const hour = Number(get("hour"));
+  const minute = Number(get("minute"));
+  return { weekday, hour, minute, minutesOfDay: hour * 60 + minute };
+};
+
+/** Night shift surcharge window: 00:00–06:00 Israel time. */
+const isNightShift = (date = new Date()) => {
+  const { hour } = israelDateParts(date);
+  return hour >= 0 && hour < 6;
+};
+
+/**
+ * Shabbat window from the rate card: Friday 15:00 → Saturday 21:00 (Israel).
+ * (Public holidays would need a calendar; weekly Shabbat is applied here.)
+ */
+const isShabbatWindow = (date = new Date()) => {
+  const { weekday, minutesOfDay } = israelDateParts(date);
+  if (weekday === "Fri" && minutesOfDay >= 15 * 60) return true;
+  if (weekday === "Sat" && minutesOfDay < 21 * 60) return true;
+  return false;
+};
+
+/**
+ * Full fare breakdown matching מחירון גרירות + platform fee + VAT.
+ * @param {number} distanceKm
+ * @param {{ includeRescue?: boolean, at?: Date }} [opts]
+ */
+const calculateTowingFare = (distanceKm, opts = {}) => {
+  const at = opts.at instanceof Date ? opts.at : new Date();
+  const includeRescue = Boolean(opts.includeRescue);
+  const base = distanceBasePrice(distanceKm);
+  const night = isNightShift(at);
+  const shabbat = isShabbatWindow(at);
+  const nightSurcharge = night ? Math.round(base * 0.5) : 0;
+  const shabbatSurcharge = shabbat ? Math.round(base * 0.5) : 0;
+  const rescueFee = includeRescue ? PRICING.rescueFee : 0;
+  const towingFee = base + nightSurcharge + shabbatSurcharge + rescueFee;
+  const serviceFee = PRICING.serviceFee;
+  const vat = Math.round(((towingFee + serviceFee) * PRICING.vatPercent) / 100);
+  const total = towingFee + serviceFee + vat;
+  return {
+    basePrice: base,
+    nightSurcharge,
+    shabbatSurcharge,
+    rescueFee,
+    towingFee,
+    serviceFee,
+    vat,
+    vatPercent: PRICING.vatPercent,
+    total,
+    isNight: night,
+    isShabbat: shabbat,
+  };
 };
 
 /** Flatten populated customer onto trip JSON so apps always get phone/name. */
@@ -44,7 +139,15 @@ const withCustomerContact = (tripDoc) => {
 };
 
 export const estimateTrip = catchAsync(async (req, res) => {
-  const { pickupLat, pickupLng, dropoffLat, dropoffLng } = req.body;
+  const {
+    pickupLat,
+    pickupLng,
+    dropoffLat,
+    dropoffLng,
+    includeRescue,
+    isRescue,
+    tripType,
+  } = req.body;
 
   if ([pickupLat, pickupLng, dropoffLat, dropoffLng].some((v) => v === undefined || v === null)) {
     throw new AppError(httpStatus.BAD_REQUEST, "Pickup and dropoff coordinates are required");
@@ -55,14 +158,19 @@ export const estimateTrip = catchAsync(async (req, res) => {
       haversineKm(Number(pickupLat), Number(pickupLng), Number(dropoffLat), Number(dropoffLng)) * 10
     ) / 10;
   // Cap to Israel-scale distances so bad geocodes (e.g. overseas) don't create absurd fares.
-  const MAX_DISTANCE_KM = 200;
+  const MAX_DISTANCE_KM = 500;
   const distanceKm = Math.min(distanceRaw, MAX_DISTANCE_KM);
 
-  const towingFee = Math.round(PRICING.basePrice + distanceKm * PRICING.perKm);
-  const serviceFee = PRICING.serviceFee;
-  const vat = Math.round(((towingFee + serviceFee) * PRICING.vatPercent) / 100);
-  const total = towingFee + serviceFee + vat;
-  const durationMinutes = Math.round((distanceKm / PRICING.avgSpeedKmh) * 60 + PRICING.pickupBufferMin);
+  const rescueRequested =
+    includeRescue === true ||
+    isRescue === true ||
+    String(tripType || "").toLowerCase() === "rescue" ||
+    String(tripType || "").toLowerCase() === "extraction";
+
+  const fare = calculateTowingFare(distanceKm, { includeRescue: rescueRequested });
+  const durationMinutes = Math.round(
+    (distanceKm / PRICING.avgSpeedKmh) * 60 + PRICING.pickupBufferMin
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -73,11 +181,18 @@ export const estimateTrip = catchAsync(async (req, res) => {
       distanceUncappedKm: distanceRaw,
       distanceCapped: distanceRaw > MAX_DISTANCE_KM,
       durationMinutes,
-      towingFee,
-      serviceFee,
-      vat,
-      vatPercent: PRICING.vatPercent,
-      total,
+      basePrice: fare.basePrice,
+      nightSurcharge: fare.nightSurcharge,
+      shabbatSurcharge: fare.shabbatSurcharge,
+      rescueFee: fare.rescueFee,
+      towingFee: fare.towingFee,
+      serviceFee: fare.serviceFee,
+      vat: fare.vat,
+      vatPercent: fare.vatPercent,
+      total: fare.total,
+      isNight: fare.isNight,
+      isShabbat: fare.isShabbat,
+      includeRescue: rescueRequested,
       currency: "ILS",
     },
   });
@@ -160,7 +275,7 @@ export const createTrip = catchAsync(async (req, res) => {
   }
 
   // Guard against absurd client prices (e.g. overseas geocode mistakes).
-  const MAX_TRIP_PRICE = 5000;
+  const MAX_TRIP_PRICE = 100000;
   const safePrice = Math.min(Math.max(0, price ? Number(price) : 0), MAX_TRIP_PRICE);
 
   const trip = await Trip.create({
@@ -292,15 +407,24 @@ export const cancelTripByCustomer = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Trip not found");
   }
 
-  if (!["pending", "accepted"].includes(trip.status)) {
+  if (!["pending", "accepted", "in_progress"].includes(trip.status)) {
     throw new AppError(httpStatus.BAD_REQUEST, "Trip cannot be cancelled at this stage");
   }
+
+  const assignedDriverId = trip.driverId;
 
   trip.status = "cancelled";
   trip.cancellationReason = reason || "";
   trip.cancelledBy = "customer";
   trip.cancelledAt = new Date();
   await trip.save();
+
+  // Free the assigned driver so they can take new calls.
+  if (assignedDriverId) {
+    await Driver.findByIdAndUpdate(assignedDriverId, {
+      availabilityStatus: "available",
+    });
+  }
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -474,9 +598,34 @@ export const rejectTrip = catchAsync(async (req, res) => {
     return;
   }
 
-  // Reject an already accepted trip — release back to pool without offering again to this driver
-  if (trip.status !== "accepted" || trip.driverId?.toString() !== driver._id.toString()) {
+  // Reject an already accepted / in-progress trip.
+  // - default: release back to the pending pool (driver declined after accept)
+  // - fullCancel: permanently cancel the ride (cancel-order button)
+  const assignedToMe =
+    trip.driverId?.toString() === driver._id.toString() &&
+    ["accepted", "in_progress"].includes(trip.status);
+
+  if (!assignedToMe) {
     throw new AppError(httpStatus.NOT_FOUND, "Trip not found");
+  }
+
+  if (req.body?.fullCancel === true || req.body?.cancel === true) {
+    trip.status = "cancelled";
+    trip.cancellationReason = reason || "Driver cancelled";
+    trip.cancelledBy = "driver";
+    trip.cancelledAt = new Date();
+    await trip.save();
+
+    driver.availabilityStatus = "available";
+    await driver.save();
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: "Trip cancelled",
+      data: trip,
+    });
+    return;
   }
 
   await Trip.findByIdAndUpdate(trip._id, {
