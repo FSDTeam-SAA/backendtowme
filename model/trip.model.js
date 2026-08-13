@@ -54,6 +54,22 @@ const tripSchema = new Schema(
     price: { type: Number, default: 0 },
     estimatedDistance: { type: Number, default: 0 }, // km
     estimatedDuration: { type: Number, default: 0 }, // minutes
+    /** Snapshot of rate-card breakdown at booking time. */
+    priceBreakdown: {
+      basePrice: { type: Number, default: 0 },
+      nightSurcharge: { type: Number, default: 0 },
+      shabbatSurcharge: { type: Number, default: 0 },
+      rescueFee: { type: Number, default: 0 },
+      towingFee: { type: Number, default: 0 },
+      serviceFee: { type: Number, default: 0 },
+      taxableSubtotal: { type: Number, default: 0 },
+      vat: { type: Number, default: 0 },
+      vatPercent: { type: Number, default: 18 },
+      total: { type: Number, default: 0 },
+      includeRescue: { type: Boolean, default: false },
+      isNight: { type: Boolean, default: false },
+      isShabbat: { type: Boolean, default: false },
+    },
 
     // Status
     status: {

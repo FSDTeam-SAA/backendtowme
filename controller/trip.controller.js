@@ -7,123 +7,71 @@ import AppError from "../errors/AppError.js";
 import catchAsync from "../utils/catchAsync.js";
 import httpStatus from "http-status";
 import sendResponse from "../utils/sendResponse.js";
+import { notifyDriversNewTrip } from "../utils/pushNotification.js";
+import {
+  PRICING,
+  haversineKm,
+  roundKm,
+  calculateTowingFare,
+} from "../utils/towingPricing.js";
+import { getDrivingDistanceKm } from "../utils/googleMapsDistance.js";
 
 // ============ CUSTOMER: PRICE ESTIMATE ============
-// Official towing price list (מחירון גרירות):
-//   1–10 km → 400, then +200 ₪ every 10 km up to 100 km.
-//   Over 100 km → 2200 + (km − 100) × 20 ₪.
-// Extras on base: rescue +400, Shabbat/holidays +50%, night 00:00–06:00 +50%.
-// VAT 18%. Platform service fee kept for the payment UI breakdown.
+// Rate card: utils/towingPricing.js
+// Distance (temporary): Google driving when available, else straight-line (haversine).
+// TODO: after Routes API is enabled, prefer google_driving only.
 
-const PRICING = {
-  serviceFee: 25, // ₪ fixed platform fee (app fee, not in towing list)
-  vatPercent: 18, // Israeli VAT
-  avgSpeedKmh: 40, // for duration estimate
-  pickupBufferMin: 12,
-  rescueFee: 400,
-  over100PerKm: 20,
-  /** Inclusive upper-km → base price (before VAT / surcharges). */
-  distanceTiers: [
-    { maxKm: 10, price: 400 },
-    { maxKm: 20, price: 600 },
-    { maxKm: 30, price: 800 },
-    { maxKm: 40, price: 1000 },
-    { maxKm: 50, price: 1200 },
-    { maxKm: 60, price: 1400 },
-    { maxKm: 70, price: 1600 },
-    { maxKm: 80, price: 1800 },
-    { maxKm: 90, price: 2000 },
-    { maxKm: 100, price: 2200 },
-  ],
-};
+const MAX_DISTANCE_KM = 500;
 
-const haversineKm = (lat1, lng1, lat2, lng2) => {
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const R = 6371;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-};
-
-/** Distance-tier base price from the official towing rate card. */
-const distanceBasePrice = (distanceKm) => {
-  const km = Math.max(0, Number(distanceKm) || 0);
-  if (km <= 0) return PRICING.distanceTiers[0].price;
-  for (const tier of PRICING.distanceTiers) {
-    if (km <= tier.maxKm) return tier.price;
+/**
+ * Resolve trip distance for pricing.
+ * Tries Google Maps driving first; falls back to haversine until Routes API is enabled.
+ */
+async function resolveTripDistanceKm({
+  pickupLat,
+  pickupLng,
+  dropoffLat,
+  dropoffLng,
+  distanceKmOverride,
+}) {
+  const bodyDistance = Number(distanceKmOverride);
+  if (Number.isFinite(bodyDistance) && bodyDistance > 0) {
+    return {
+      distanceRaw: roundKm(bodyDistance),
+      durationMinutes: null,
+      distanceSource: "client",
+    };
   }
-  const over = km - 100;
-  return 2200 + Math.ceil(over) * PRICING.over100PerKm;
-};
 
-/** Israel local parts — used for night / Shabbat windows. */
-const israelDateParts = (date = new Date()) => {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Jerusalem",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(date);
-  const get = (type) => parts.find((p) => p.type === type)?.value ?? "";
-  const weekday = get("weekday"); // Mon, Tue, ...
-  const hour = Number(get("hour"));
-  const minute = Number(get("minute"));
-  return { weekday, hour, minute, minutesOfDay: hour * 60 + minute };
-};
+  try {
+    const driving = await getDrivingDistanceKm(
+      { lat: pickupLat, lng: pickupLng },
+      { lat: dropoffLat, lng: dropoffLng }
+    );
+    if (driving && driving.distanceKm > 0) {
+      return {
+        distanceRaw: roundKm(driving.distanceKm),
+        durationMinutes: driving.durationMinutes || null,
+        distanceSource: "google_driving",
+      };
+    }
+  } catch (err) {
+    console.warn("[maps] driving distance unavailable, using haversine:", err?.message || err);
+  }
 
-/** Night shift surcharge window: 00:00–06:00 Israel time. */
-const isNightShift = (date = new Date()) => {
-  const { hour } = israelDateParts(date);
-  return hour >= 0 && hour < 6;
-};
-
-/**
- * Shabbat window from the rate card: Friday 15:00 → Saturday 21:00 (Israel).
- * (Public holidays would need a calendar; weekly Shabbat is applied here.)
- */
-const isShabbatWindow = (date = new Date()) => {
-  const { weekday, minutesOfDay } = israelDateParts(date);
-  if (weekday === "Fri" && minutesOfDay >= 15 * 60) return true;
-  if (weekday === "Sat" && minutesOfDay < 21 * 60) return true;
-  return false;
-};
-
-/**
- * Full fare breakdown matching מחירון גרירות + platform fee + VAT.
- * @param {number} distanceKm
- * @param {{ includeRescue?: boolean, at?: Date }} [opts]
- */
-const calculateTowingFare = (distanceKm, opts = {}) => {
-  const at = opts.at instanceof Date ? opts.at : new Date();
-  const includeRescue = Boolean(opts.includeRescue);
-  const base = distanceBasePrice(distanceKm);
-  const night = isNightShift(at);
-  const shabbat = isShabbatWindow(at);
-  const nightSurcharge = night ? Math.round(base * 0.5) : 0;
-  const shabbatSurcharge = shabbat ? Math.round(base * 0.5) : 0;
-  const rescueFee = includeRescue ? PRICING.rescueFee : 0;
-  const towingFee = base + nightSurcharge + shabbatSurcharge + rescueFee;
-  const serviceFee = PRICING.serviceFee;
-  const vat = Math.round(((towingFee + serviceFee) * PRICING.vatPercent) / 100);
-  const total = towingFee + serviceFee + vat;
   return {
-    basePrice: base,
-    nightSurcharge,
-    shabbatSurcharge,
-    rescueFee,
-    towingFee,
-    serviceFee,
-    vat,
-    vatPercent: PRICING.vatPercent,
-    total,
-    isNight: night,
-    isShabbat: shabbat,
+    distanceRaw: roundKm(
+      haversineKm(
+        Number(pickupLat),
+        Number(pickupLng),
+        Number(dropoffLat),
+        Number(dropoffLng)
+      )
+    ),
+    durationMinutes: null,
+    distanceSource: "haversine",
   };
-};
+}
 
 /** Flatten populated customer onto trip JSON so apps always get phone/name. */
 const withCustomerContact = (tripDoc) => {
@@ -153,12 +101,16 @@ export const estimateTrip = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, "Pickup and dropoff coordinates are required");
   }
 
-  const distanceRaw =
-    Math.round(
-      haversineKm(Number(pickupLat), Number(pickupLng), Number(dropoffLat), Number(dropoffLng)) * 10
-    ) / 10;
-  // Cap to Israel-scale distances so bad geocodes (e.g. overseas) don't create absurd fares.
-  const MAX_DISTANCE_KM = 500;
+  // Distance: Google driving if available, else straight-line (haversine) for now.
+  const resolved = await resolveTripDistanceKm({
+    pickupLat,
+    pickupLng,
+    dropoffLat,
+    dropoffLng,
+    distanceKmOverride: req.body.distanceKm,
+  });
+  const distanceRaw = resolved.distanceRaw;
+  // Cap to Israel-scale distances so bad geocodes don't create absurd fares.
   const distanceKm = Math.min(distanceRaw, MAX_DISTANCE_KM);
 
   const rescueRequested =
@@ -168,9 +120,12 @@ export const estimateTrip = catchAsync(async (req, res) => {
     String(tripType || "").toLowerCase() === "extraction";
 
   const fare = calculateTowingFare(distanceKm, { includeRescue: rescueRequested });
-  const durationMinutes = Math.round(
-    (distanceKm / PRICING.avgSpeedKmh) * 60 + PRICING.pickupBufferMin
-  );
+  const durationMinutes =
+    resolved.durationMinutes && resolved.durationMinutes > 0
+      ? resolved.durationMinutes
+      : Math.round(
+          (distanceKm / PRICING.avgSpeedKmh) * 60 + PRICING.pickupBufferMin
+        );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -180,6 +135,7 @@ export const estimateTrip = catchAsync(async (req, res) => {
       distanceKm,
       distanceUncappedKm: distanceRaw,
       distanceCapped: distanceRaw > MAX_DISTANCE_KM,
+      distanceSource: resolved.distanceSource,
       durationMinutes,
       basePrice: fare.basePrice,
       nightSurcharge: fare.nightSurcharge,
@@ -187,6 +143,7 @@ export const estimateTrip = catchAsync(async (req, res) => {
       rescueFee: fare.rescueFee,
       towingFee: fare.towingFee,
       serviceFee: fare.serviceFee,
+      taxableSubtotal: fare.taxableSubtotal,
       vat: fare.vat,
       vatPercent: fare.vatPercent,
       total: fare.total,
@@ -268,15 +225,53 @@ export const createTrip = catchAsync(async (req, res) => {
     dropoffAddress, dropoffLat, dropoffLng,
     vehicleInfo, price, paymentMethod, notes,
     estimatedDistance, estimatedDuration,
+    includeRescue, isRescue,
   } = req.body;
 
   if (!pickupAddress || !dropoffAddress) {
     throw new AppError(httpStatus.BAD_REQUEST, "Pickup and dropoff addresses are required");
   }
 
-  // Guard against absurd client prices (e.g. overseas geocode mistakes).
+  const rescueRequested =
+    includeRescue === true ||
+    isRescue === true ||
+    String(tripType || "").toLowerCase() === "rescue" ||
+    String(tripType || "").toLowerCase() === "extraction";
+
+  // Distance for fare: Google driving if available, else haversine (temporary).
+  if (
+    pickupLat == null ||
+    pickupLng == null ||
+    dropoffLat == null ||
+    dropoffLng == null
+  ) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Pickup and dropoff coordinates are required"
+    );
+  }
+
+  const resolved = await resolveTripDistanceKm({
+    pickupLat,
+    pickupLng,
+    dropoffLat,
+    dropoffLng,
+    distanceKmOverride: estimatedDistance,
+  });
+  const distanceKm = Math.min(Math.max(0, resolved.distanceRaw), MAX_DISTANCE_KM);
+
+  const fare = calculateTowingFare(distanceKm, { includeRescue: rescueRequested });
+  const durationMinutes =
+    resolved.durationMinutes && resolved.durationMinutes > 0
+      ? resolved.durationMinutes
+      : estimatedDuration != null && Number(estimatedDuration) > 0
+        ? Number(estimatedDuration)
+        : Math.round(
+            (distanceKm / PRICING.avgSpeedKmh) * 60 + PRICING.pickupBufferMin
+          );
+
   const MAX_TRIP_PRICE = 100000;
-  const safePrice = Math.min(Math.max(0, price ? Number(price) : 0), MAX_TRIP_PRICE);
+  const safePrice = Math.min(Math.max(0, fare.total), MAX_TRIP_PRICE);
 
   const trip = await Trip.create({
     customerId: req.user._id,
@@ -297,8 +292,23 @@ export const createTrip = catchAsync(async (req, res) => {
     },
     vehicleInfo: vehicleInfo || {},
     price: safePrice,
-    estimatedDistance: estimatedDistance ? Number(estimatedDistance) : 0,
-    estimatedDuration: estimatedDuration ? Number(estimatedDuration) : 0,
+    estimatedDistance: distanceKm,
+    estimatedDuration: durationMinutes,
+    priceBreakdown: {
+      basePrice: fare.basePrice,
+      nightSurcharge: fare.nightSurcharge,
+      shabbatSurcharge: fare.shabbatSurcharge,
+      rescueFee: fare.rescueFee,
+      towingFee: fare.towingFee,
+      serviceFee: fare.serviceFee,
+      taxableSubtotal: fare.taxableSubtotal,
+      vat: fare.vat,
+      vatPercent: fare.vatPercent,
+      total: fare.total,
+      includeRescue: rescueRequested,
+      isNight: fare.isNight,
+      isShabbat: fare.isShabbat,
+    },
     paymentMethod: paymentMethod || "cash",
     notes: notes || "",
     status: "pending",
@@ -312,12 +322,18 @@ export const createTrip = catchAsync(async (req, res) => {
     relatedId: trip._id,
   });
 
-  // Notify available drivers about new pending trip
-  const availableDrivers = await Driver.find({ availabilityStatus: "available" });
+  // Notify available drivers about new pending trip (in-app + device push)
+  const availableDrivers = await Driver.find({
+    availabilityStatus: "available",
+  }).select("userId");
+  const driverUserIds = availableDrivers
+    .map((d) => d.userId)
+    .filter(Boolean);
+
   await Promise.all(
-    availableDrivers.map((driver) =>
+    driverUserIds.map((userId) =>
       Notification.create({
-        userId: driver.userId,
+        userId,
         title: "קריאה חדשה",
         message: `קריאת גרירה חדשה: ${pickupAddress} → ${dropoffAddress}`,
         type: "new_trip",
@@ -325,6 +341,16 @@ export const createTrip = catchAsync(async (req, res) => {
       })
     )
   );
+
+  // Fire-and-forget FCM so drivers get alert even if app is closed/background.
+  notifyDriversNewTrip({
+    userIds: driverUserIds,
+    tripId: trip._id,
+    pickupAddress,
+    dropoffAddress,
+  }).catch((err) => {
+    console.error("[createTrip] push notify failed:", err?.message || err);
+  });
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
@@ -879,6 +905,26 @@ export const assignDriver = catchAsync(async (req, res) => {
 
   driver.availabilityStatus = "busy";
   await driver.save();
+
+  if (driver.userId) {
+    await Notification.create({
+      userId: driver.userId,
+      title: "קריאה חדשה",
+      message: `שובצת לקריאת גרירה: ${trip.pickupLocation?.address || ""} → ${
+        trip.dropoffLocation?.address || ""
+      }`,
+      type: "new_trip",
+      relatedId: trip._id,
+    });
+    notifyDriversNewTrip({
+      userIds: [driver.userId],
+      tripId: trip._id,
+      pickupAddress: trip.pickupLocation?.address,
+      dropoffAddress: trip.dropoffLocation?.address,
+    }).catch((err) => {
+      console.error("[assignDriver] push notify failed:", err?.message || err);
+    });
+  }
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

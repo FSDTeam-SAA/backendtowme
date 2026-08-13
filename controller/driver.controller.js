@@ -559,6 +559,64 @@ export const getDriverFinancials = catchAsync(async (req, res) => {
   });
 });
 
+// ============ DRIVER: REGISTER / UPDATE FCM TOKEN ============
+
+export const registerFcmToken = catchAsync(async (req, res) => {
+  const { token, pushEnabled, alertSoundsEnabled } = req.body;
+  const user = await User.findById(req.user._id);
+  if (!user) {
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  if (typeof pushEnabled === "boolean") {
+    user.pushNotificationsEnabled = pushEnabled;
+  }
+  if (typeof alertSoundsEnabled === "boolean") {
+    user.alertSoundsEnabled = alertSoundsEnabled;
+  }
+
+  if (token && typeof token === "string" && token.trim()) {
+    const clean = token.trim();
+    if (!user.fcmTokens.includes(clean)) {
+      user.fcmTokens.push(clean);
+    }
+    // Keep list bounded
+    if (user.fcmTokens.length > 10) {
+      user.fcmTokens = user.fcmTokens.slice(-10);
+    }
+  }
+
+  await user.save();
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "FCM token registered",
+    data: {
+      pushNotificationsEnabled: user.pushNotificationsEnabled,
+      alertSoundsEnabled: user.alertSoundsEnabled,
+      tokenCount: user.fcmTokens.length,
+    },
+  });
+});
+
+export const removeFcmToken = catchAsync(async (req, res) => {
+  const { token } = req.body;
+  if (!token) {
+    throw new AppError(httpStatus.BAD_REQUEST, "token is required");
+  }
+  await User.updateOne(
+    { _id: req.user._id },
+    { $pull: { fcmTokens: token.trim() } }
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "FCM token removed",
+    data: null,
+  });
+});
+
 // ============ DRIVER: CHANGE PASSWORD ============
 
 export const changeDriverPassword = catchAsync(async (req, res) => {

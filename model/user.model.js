@@ -73,6 +73,20 @@ const userSchema = new Schema(
     city: { type: String, default: "" },
     registrationDate: { type: Date, default: Date.now },
     isVip: { type: Boolean, default: false },
+
+    // Push notifications (FCM) — used by driver app for new towing calls
+    fcmTokens: {
+      type: [String],
+      default: [],
+    },
+    pushNotificationsEnabled: {
+      type: Boolean,
+      default: true,
+    },
+    alertSoundsEnabled: {
+      type: Boolean,
+      default: true,
+    },
   },
   { timestamps: true }
 );

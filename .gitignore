@@ -4,3 +4,4 @@ node_modules
 public/towme/
 temp_auto_push.bat
 temp_interactive_push.bat
+firebase-service-account.json

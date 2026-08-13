@@ -4,6 +4,7 @@ import {
   toggleDriverBlock, deleteDriver,
   getDriverProfile, updateDriverProfile, toggleAvailability,
   updateLocation, getMyTrips, getDriverFinancials, changeDriverPassword,
+  registerFcmToken, removeFcmToken,
 } from "../controller/driver.controller.js";
 import { protect, isAdmin, isDriver } from "../middleware/auth.middleware.js";
 import upload from "../middleware/multer.middleware.js";
@@ -12,6 +13,8 @@ const router = express.Router();
 
 // Driver self-service routes (must be before /:id)
 router.get("/me/profile", protect, isDriver, getDriverProfile);
+router.post("/me/fcm-token", protect, isDriver, registerFcmToken);
+router.delete("/me/fcm-token", protect, isDriver, removeFcmToken);
 router.put(
   "/me/profile",
   protect,

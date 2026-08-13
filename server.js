@@ -51,6 +51,7 @@ app.get("/", (req, res) => {
       support: "/api/v1/support",
       analytics: "/api/v1/analytics",
       notifications: "/api/v1/notifications",
+      vehicles: "/api/v1/vehicles",
     },
   });
 });
