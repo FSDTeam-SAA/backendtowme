@@ -8,7 +8,7 @@ import {
 
 let failed = 0;
 const assertEq = (label, actual, expected) => {
-  if (actual !== expected) {
+  if (Math.abs(actual - expected) > 0.01) {
     failed += 1;
     console.error(`FAIL ${label}: got ${actual}, expected ${expected}`);
   } else {
@@ -16,46 +16,53 @@ const assertEq = (label, actual, expected) => {
   }
 };
 
-// Base price by distance (before fee / VAT)
+// Base price by decimal distance (before fee / VAT)
 const baseCases = [
-  [10, 400],
-  [11, 600],
-  [20, 600],
-  [21, 800],
-  [30, 800],
-  [31, 1000],
-  [40, 1000],
-  [41, 1200],
-  [50, 1200],
-  [51, 1400],
-  [60, 1400],
-  [61, 1600],
-  [70, 1600],
-  [71, 1800],
-  [80, 1800],
-  [81, 2000],
-  [90, 2000],
-  [91, 2200],
-  [100, 2200],
-  [101, 2220],
-  [110, 2400],
-  [150, 3200],
-  [500, 10200],
+  [1.0, 400],
+  [5.0, 400],
+  [9.9, 400],
+  [10.0, 400],
+  [10.1, 402],
+  [11.0, 420],
+  [11.2, 424],
+  [14.3, 486],
+  [19.9, 598],
+  [20.0, 600],
+  [20.1, 602],
+  [21.0, 620],
+  [29.9, 798],
+  [30.0, 800],
+  [40.0, 1000],
+  [50.0, 1200],
+  [60.0, 1400],
+  [61.6, 1432],
+  [70.0, 1600],
+  [80.0, 1800],
+  [90.0, 2000],
+  [99.8, 2196],
+  [100.0, 2200],
+  [100.1, 2202],
+  [101.0, 2220],
+  [101.5, 2230],
+  [105.7, 2314],
+  [120.0, 2600],
+  [500.0, 10200],
 ];
 
 for (const [km, expected] of baseCases) {
   assertEq(`base ${km} km`, distanceBasePrice(km), expected);
 }
 
-// Base-only including VAT (rate-card column) — no service fee
-for (const [km, base] of [
-  [10, 400],
-  [11, 600],
-  [100, 2200],
-]) {
-  const withVat = Math.round(base * 1.18);
-  assertEq(`base+VAT only ${km} km`, withVat, Math.round(base * 1.18));
-}
+// Decimal VAT test cases (14.3 KM & 61.6 KM)
+const fare14_3 = calculateTowingFare(14.3, { includeRescue: false, forceNight: false, forceShabbat: false });
+assertEq("14.3 KM base", fare14_3.basePrice, 486);
+assertEq("14.3 KM taxable", fare14_3.taxableSubtotal, 486 + 25);
+assertEq("14.3 KM VAT", fare14_3.vat, Math.round((486 + 25) * 0.18));
+
+const fare61_6 = calculateTowingFare(61.6, { includeRescue: false, forceNight: false, forceShabbat: false });
+assertEq("61.6 KM base", fare61_6.basePrice, 1432);
+assertEq("61.6 KM taxable", fare61_6.taxableSubtotal, 1432 + 25);
+assertEq("61.6 KM VAT", fare61_6.vat, Math.round((1432 + 25) * 0.18));
 
 // 500 km full payment breakdown (no night / Shabbat / rescue)
 const fare500 = calculateTowingFare(500, {
@@ -96,20 +103,20 @@ const fareShabbat = calculateTowingFare(10, {
 });
 assertEq("shabbat surcharge", fareShabbat.shabbatSurcharge, 200);
 
-// Night + Shabbat + rescue all stack (each 50% from base, not each other)
-const fareAll = calculateTowingFare(100, {
+// Overlap guard: Night + Shabbat does not stack double 50%
+const fareOverlap = calculateTowingFare(100, {
   includeRescue: true,
   forceNight: true,
   forceShabbat: true,
 });
-assertEq("stack base", fareAll.basePrice, 2200);
-assertEq("stack night", fareAll.nightSurcharge, 1100);
-assertEq("stack shabbat", fareAll.shabbatSurcharge, 1100);
-assertEq("stack rescue", fareAll.rescueFee, 400);
-assertEq("stack towing", fareAll.towingFee, 2200 + 1100 + 1100 + 400);
+assertEq("overlap base", fareOverlap.basePrice, 2200);
+assertEq("overlap night", fareOverlap.nightSurcharge, 1100);
+assertEq("overlap shabbat", fareOverlap.shabbatSurcharge, 0);
+assertEq("overlap rescue", fareOverlap.rescueFee, 400);
+assertEq("overlap towing", fareOverlap.towingFee, 2200 + 1100 + 400);
 
 if (failed > 0) {
   console.error(`\n${failed} test(s) failed`);
   process.exit(1);
 }
-console.log("\nAll towing pricing tests passed.");
+console.log("\nAll towing pricing tests passed successfully!");

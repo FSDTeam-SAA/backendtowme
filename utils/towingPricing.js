@@ -44,16 +44,20 @@ export const roundKm = (km) => Math.round((Number(km) || 0) * 10) / 10;
 
 /**
  * Distance-tier base towing price (before surcharges / fee / VAT).
- * Whole extra km above 100 are charged via ceil so fractional km bills a full km.
+ * Decimal precision is preserved.
+ * - Distance <= 10 KM: 400 ₪
+ * - Distance > 10 KM and <= 100 KM: 400 + ((Distance - 10) * 20) ₪
+ * - Distance > 100 KM: 2200 + ((Distance - 100) * 20) ₪
  */
 export const distanceBasePrice = (distanceKm) => {
   const km = Math.max(0, Number(distanceKm) || 0);
-  if (km <= 0) return PRICING.distanceTiers[0].price;
-  for (const tier of PRICING.distanceTiers) {
-    if (km <= tier.maxKm) return tier.price;
+  if (km <= 10) {
+    return 400;
   }
-  const overKm = Math.ceil(km - 100);
-  return 2200 + overKm * PRICING.over100PerKm;
+  if (km <= 100) {
+    return 400 + (km - 10) * 20;
+  }
+  return 2200 + (km - 100) * 20;
 };
 
 export const israelDateParts = (date = new Date()) => {
@@ -87,7 +91,7 @@ export const isShabbatWindow = (date = new Date()) => {
 
 /**
  * Full fare breakdown.
- * Order: base → +rescue → +50% night of base → +50% Shabbat of base → +service fee → VAT.
+ * Order: base → +rescue → +50% night/shabbat of base → +service fee → VAT 18%.
  *
  * @param {number} distanceKm
  * @param {{ includeRescue?: boolean, at?: Date, forceNight?: boolean, forceShabbat?: boolean }} [opts]
@@ -103,9 +107,17 @@ export const calculateTowingFare = (distanceKm, opts = {}) => {
       ? opts.forceShabbat
       : isShabbatWindow(at);
 
-  // 50% of BASE only — never of VAT-inclusive or rescue-inclusive amounts.
-  const nightSurcharge = night ? Math.round(base * 0.5) : 0;
-  const shabbatSurcharge = shabbat ? Math.round(base * 0.5) : 0;
+  // Prevent duplicate surcharge application if night and shabbat overlap (Section 18)
+  let nightSurcharge = 0;
+  let shabbatSurcharge = 0;
+  if (night && shabbat) {
+    nightSurcharge = Math.round(base * 0.5);
+    shabbatSurcharge = 0;
+  } else {
+    if (night) nightSurcharge = Math.round(base * 0.5);
+    if (shabbat) shabbatSurcharge = Math.round(base * 0.5);
+  }
+
   const rescueFee = includeRescue ? PRICING.rescueFee : 0;
 
   const towingFee = base + rescueFee + nightSurcharge + shabbatSurcharge;
