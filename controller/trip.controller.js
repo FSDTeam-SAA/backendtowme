@@ -565,9 +565,20 @@ export const acceptTrip = catchAsync(async (req, res) => {
   trip.driverId = driver._id;
   trip.status = "accepted";
   trip.acceptedAt = new Date();
-  // Driver may adjust the price when accepting (editable price on the call card).
+  // Driver may adjust the price when accepting (editable price on the Rescue call card).
   if (price !== undefined && price !== null && Number(price) > 0) {
-    trip.price = Number(price);
+    const isRescueOrder =
+      trip.tripType === "roadside" ||
+      trip.tripType === "rescue" ||
+      trip.tripType === "extraction" ||
+      trip.priceBreakdown?.includeRescue === true ||
+      (trip.notes && (
+        String(trip.notes).toLowerCase().includes("rescue") ||
+        String(trip.notes).includes("חילוץ")
+      ));
+    if (isRescueOrder) {
+      trip.price = Number(price);
+    }
   }
   await trip.save();
 
@@ -956,7 +967,17 @@ export const updateRescuePrice = catchAsync(async (req, res) => {
   }
 
   // Only allow price edits on Rescue trips
-  if (trip.tripType !== "roadside") {
+  const isRescueOrder =
+    trip.tripType === "roadside" ||
+    trip.tripType === "rescue" ||
+    trip.tripType === "extraction" ||
+    trip.priceBreakdown?.includeRescue === true ||
+    (trip.notes && (
+      String(trip.notes).toLowerCase().includes("rescue") ||
+      String(trip.notes).includes("חילוץ")
+    ));
+
+  if (!isRescueOrder) {
     throw new AppError(httpStatus.BAD_REQUEST, "Price editing is only allowed for Rescue orders");
   }
 
