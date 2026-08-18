@@ -116,8 +116,13 @@ export const estimateTrip = catchAsync(async (req, res) => {
   const rescueRequested =
     includeRescue === true ||
     isRescue === true ||
+    String(tripType || "").toLowerCase() === "roadside" ||
     String(tripType || "").toLowerCase() === "rescue" ||
-    String(tripType || "").toLowerCase() === "extraction";
+    String(tripType || "").toLowerCase() === "extraction" ||
+    (req.body.notes && (
+      String(req.body.notes).toLowerCase().includes("rescue") ||
+      String(req.body.notes).includes("חילוץ")
+    ));
 
   const fare = calculateTowingFare(distanceKm, { includeRescue: rescueRequested });
   const durationMinutes =
@@ -235,8 +240,13 @@ export const createTrip = catchAsync(async (req, res) => {
   const rescueRequested =
     includeRescue === true ||
     isRescue === true ||
+    String(tripType || "").toLowerCase() === "roadside" ||
     String(tripType || "").toLowerCase() === "rescue" ||
-    String(tripType || "").toLowerCase() === "extraction";
+    String(tripType || "").toLowerCase() === "extraction" ||
+    (notes && (
+      String(notes).toLowerCase().includes("rescue") ||
+      String(notes).includes("חילוץ")
+    ));
 
   // Distance for fare: Google driving if available, else haversine (temporary).
   if (
@@ -578,6 +588,9 @@ export const acceptTrip = catchAsync(async (req, res) => {
       ));
     if (isRescueOrder) {
       trip.price = Number(price);
+      if (trip.priceBreakdown) {
+        trip.priceBreakdown.total = Number(price);
+      }
     }
   }
   await trip.save();
@@ -982,6 +995,9 @@ export const updateRescuePrice = catchAsync(async (req, res) => {
   }
 
   trip.price = newPrice;
+  if (trip.priceBreakdown) {
+    trip.priceBreakdown.total = newPrice;
+  }
   await trip.save();
 
   sendResponse(res, {
