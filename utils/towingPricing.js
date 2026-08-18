@@ -111,20 +111,20 @@ export const calculateTowingFare = (distanceKm, opts = {}) => {
   let nightSurcharge = 0;
   let shabbatSurcharge = 0;
   if (night && shabbat) {
-    nightSurcharge = Math.round(base * 0.5);
+    nightSurcharge = Number((base * 0.5).toFixed(2));
     shabbatSurcharge = 0;
   } else {
-    if (night) nightSurcharge = Math.round(base * 0.5);
-    if (shabbat) shabbatSurcharge = Math.round(base * 0.5);
+    if (night) nightSurcharge = Number((base * 0.5).toFixed(2));
+    if (shabbat) shabbatSurcharge = Number((base * 0.5).toFixed(2));
   }
 
   const rescueFee = includeRescue ? PRICING.rescueFee : 0;
 
-  const towingFee = base + rescueFee + nightSurcharge + shabbatSurcharge;
+  const towingFee = Number((base + rescueFee + nightSurcharge + shabbatSurcharge).toFixed(2));
   const serviceFee = PRICING.serviceFee;
-  const taxableSubtotal = towingFee + serviceFee;
-  const vat = Math.round((taxableSubtotal * PRICING.vatPercent) / 100);
-  const total = taxableSubtotal + vat;
+  const taxableSubtotal = Number((towingFee + serviceFee).toFixed(2));
+  const vat = Number((taxableSubtotal * (PRICING.vatPercent / 100)).toFixed(2));
+  const total = Number((taxableSubtotal + vat).toFixed(2));
 
   return {
     basePrice: base,
