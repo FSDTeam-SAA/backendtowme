@@ -933,3 +933,40 @@ export const assignDriver = catchAsync(async (req, res) => {
     data: trip,
   });
 });
+
+// ============ DRIVER: UPDATE RESCUE PRICE (before accepting) ============
+
+export const updateRescuePrice = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { price } = req.body;
+
+  const newPrice = Number(price);
+  if (!Number.isFinite(newPrice) || newPrice <= 0) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Invalid price value");
+  }
+
+  const driver = await Driver.findOne({ userId: req.user._id });
+  if (!driver) {
+    throw new AppError(httpStatus.NOT_FOUND, "Driver profile not found");
+  }
+
+  const trip = await Trip.findOne({ _id: id, status: "pending" });
+  if (!trip) {
+    throw new AppError(httpStatus.NOT_FOUND, "Trip not found or not in pending state");
+  }
+
+  // Only allow price edits on Rescue trips
+  if (trip.tripType !== "roadside") {
+    throw new AppError(httpStatus.BAD_REQUEST, "Price editing is only allowed for Rescue orders");
+  }
+
+  trip.price = newPrice;
+  await trip.save();
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Rescue price updated",
+    data: { tripId: trip._id, price: trip.price },
+  });
+});

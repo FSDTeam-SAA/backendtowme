@@ -3,7 +3,7 @@ import {
   createTrip, getMyTripsAsCustomer, getTripById,
   cancelTripByCustomer, rateTrip, estimateTrip, getTripDriverLocation,
   getPendingTrips, acceptTrip, rejectTrip, startTrip, completeTrip,
-  getAllTrips, cancelTripByAdmin, assignDriver,
+  getAllTrips, cancelTripByAdmin, assignDriver, updateRescuePrice,
 } from "../controller/trip.controller.js";
 import { protect, isAdmin, isDriver, isCustomer } from "../middleware/auth.middleware.js";
 
@@ -23,6 +23,7 @@ router.post("/:id/accept", protect, isDriver, acceptTrip);
 router.post("/:id/reject", protect, isDriver, rejectTrip);
 router.post("/:id/start", protect, isDriver, startTrip);
 router.post("/:id/complete", protect, isDriver, completeTrip);
+router.patch("/:id/rescue-price", protect, isDriver, updateRescuePrice);
 
 // Admin routes
 router.get("/", protect, isAdmin, getAllTrips);
