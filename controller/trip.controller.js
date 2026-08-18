@@ -440,7 +440,7 @@ export const cancelTripByCustomer = catchAsync(async (req, res) => {
   const assignedDriverId = trip.driverId;
 
   trip.status = "cancelled";
-  trip.cancellationReason = reason || "";
+  trip.cancellationReason = (reason && String(reason).trim()) ? String(reason).trim() : "";
   trip.cancelledBy = "customer";
   trip.cancelledAt = new Date();
   await trip.save();
@@ -637,7 +637,7 @@ export const rejectTrip = catchAsync(async (req, res) => {
 
   if (req.body?.fullCancel === true || req.body?.cancel === true) {
     trip.status = "cancelled";
-    trip.cancellationReason = reason || "Driver cancelled";
+    trip.cancellationReason = (reason && String(reason).trim()) ? String(reason).trim() : "Driver cancelled";
     trip.cancelledBy = "driver";
     trip.cancelledAt = new Date();
     await trip.save();
