@@ -48,6 +48,8 @@ const tripSchema = new Schema(
       licensePlate: { type: String, default: "" },
       year: { type: Number },
       type: { type: String, default: "" }, // category: car / truck / motorcycle / etc.
+      weightBand: { type: String, default: "" },
+      weight: { type: Number },
     },
 
     // Pricing
@@ -56,9 +58,14 @@ const tripSchema = new Schema(
     estimatedDuration: { type: Number, default: 0 }, // minutes
     /** Snapshot of rate-card breakdown at booking time. */
     priceBreakdown: {
+      vehicleType: { type: String, default: "car" },
+      weightBand: { type: String, default: "" },
+      includedKm: { type: Number, default: 0 },
+      additionalKmPrice: { type: Number, default: 0 },
       basePrice: { type: Number, default: 0 },
       nightSurcharge: { type: Number, default: 0 },
       shabbatSurcharge: { type: Number, default: 0 },
+      holidaySurcharge: { type: Number, default: 0 },
       rescueFee: { type: Number, default: 0 },
       towingFee: { type: Number, default: 0 },
       serviceFee: { type: Number, default: 0 },
@@ -69,6 +76,7 @@ const tripSchema = new Schema(
       includeRescue: { type: Boolean, default: false },
       isNight: { type: Boolean, default: false },
       isShabbat: { type: Boolean, default: false },
+      isHoliday: { type: Boolean, default: false },
     },
 
     // Status

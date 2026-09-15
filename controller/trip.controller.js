@@ -13,6 +13,9 @@ import {
   haversineKm,
   roundKm,
   calculateTowingFare,
+  normalizeVehicleType,
+  normalizeWeightBand,
+  requiresWeightBand,
 } from "../utils/towingPricing.js";
 import { getDrivingDistanceKm } from "../utils/googleMapsDistance.js";
 
@@ -34,15 +37,6 @@ async function resolveTripDistanceKm({
   dropoffLng,
   distanceKmOverride,
 }) {
-  const bodyDistance = Number(distanceKmOverride);
-  if (Number.isFinite(bodyDistance) && bodyDistance > 0) {
-    return {
-      distanceRaw: roundKm(bodyDistance),
-      durationMinutes: null,
-      distanceSource: "client",
-    };
-  }
-
   try {
     const driving = await getDrivingDistanceKm(
       { lat: pickupLat, lng: pickupLng },
@@ -56,7 +50,16 @@ async function resolveTripDistanceKm({
       };
     }
   } catch (err) {
-    console.warn("[maps] driving distance unavailable, using haversine:", err?.message || err);
+    console.warn("[maps] driving distance unavailable, using client/haversine fallback:", err?.message || err);
+  }
+
+  const bodyDistance = Number(distanceKmOverride);
+  if (Number.isFinite(bodyDistance) && bodyDistance > 0) {
+    return {
+      distanceRaw: roundKm(bodyDistance),
+      durationMinutes: null,
+      distanceSource: "client_fallback",
+    };
   }
 
   return {
@@ -86,6 +89,23 @@ const withCustomerContact = (tripDoc) => {
   return obj;
 };
 
+const resolvePricingVehicle = ({ vehicleType, weightBand, vehicleWeight }) => {
+  const type = normalizeVehicleType(vehicleType || "car");
+  if (!type) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Unsupported vehicle type");
+  }
+  const band = requiresWeightBand(type)
+    ? normalizeWeightBand(weightBand ?? vehicleWeight)
+    : null;
+  if (requiresWeightBand(type) && !band) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "A valid weight band is required for trucks and work equipment",
+    );
+  }
+  return { vehicleType: type, weightBand: band };
+};
+
 export const estimateTrip = catchAsync(async (req, res) => {
   const {
     pickupLat,
@@ -95,6 +115,9 @@ export const estimateTrip = catchAsync(async (req, res) => {
     includeRescue,
     isRescue,
     tripType,
+    vehicleType,
+    weightBand,
+    vehicleWeight,
   } = req.body;
 
   if ([pickupLat, pickupLng, dropoffLat, dropoffLng].some((v) => v === undefined || v === null)) {
@@ -116,7 +139,6 @@ export const estimateTrip = catchAsync(async (req, res) => {
   const rescueRequested =
     includeRescue === true ||
     isRescue === true ||
-    String(tripType || "").toLowerCase() === "roadside" ||
     String(tripType || "").toLowerCase() === "rescue" ||
     String(tripType || "").toLowerCase() === "extraction" ||
     (req.body.notes && (
@@ -124,7 +146,11 @@ export const estimateTrip = catchAsync(async (req, res) => {
       String(req.body.notes).includes("חילוץ")
     ));
 
-  const fare = calculateTowingFare(distanceKm, { includeRescue: rescueRequested });
+  const pricingVehicle = resolvePricingVehicle({ vehicleType, weightBand, vehicleWeight });
+  const fare = calculateTowingFare(distanceKm, {
+    includeRescue: rescueRequested,
+    ...pricingVehicle,
+  });
   const durationMinutes =
     resolved.durationMinutes && resolved.durationMinutes > 0
       ? resolved.durationMinutes
@@ -142,9 +168,14 @@ export const estimateTrip = catchAsync(async (req, res) => {
       distanceCapped: distanceRaw > MAX_DISTANCE_KM,
       distanceSource: resolved.distanceSource,
       durationMinutes,
+      vehicleType: fare.vehicleType,
+      weightBand: fare.weightBand,
+      includedKm: fare.includedKm,
+      additionalKmPrice: fare.additionalKmPrice,
       basePrice: fare.basePrice,
       nightSurcharge: fare.nightSurcharge,
       shabbatSurcharge: fare.shabbatSurcharge,
+      holidaySurcharge: fare.holidaySurcharge,
       rescueFee: fare.rescueFee,
       towingFee: fare.towingFee,
       serviceFee: fare.serviceFee,
@@ -154,6 +185,7 @@ export const estimateTrip = catchAsync(async (req, res) => {
       total: fare.total,
       isNight: fare.isNight,
       isShabbat: fare.isShabbat,
+      isHoliday: fare.isHoliday,
       includeRescue: rescueRequested,
       currency: "ILS",
     },
@@ -240,7 +272,6 @@ export const createTrip = catchAsync(async (req, res) => {
   const rescueRequested =
     includeRescue === true ||
     isRescue === true ||
-    String(tripType || "").toLowerCase() === "roadside" ||
     String(tripType || "").toLowerCase() === "rescue" ||
     String(tripType || "").toLowerCase() === "extraction" ||
     (notes && (
@@ -270,7 +301,15 @@ export const createTrip = catchAsync(async (req, res) => {
   });
   const distanceKm = Math.min(Math.max(0, resolved.distanceRaw), MAX_DISTANCE_KM);
 
-  const fare = calculateTowingFare(distanceKm, { includeRescue: rescueRequested });
+  const pricingVehicle = resolvePricingVehicle({
+    vehicleType: vehicleInfo?.type,
+    weightBand: vehicleInfo?.weightBand,
+    vehicleWeight: vehicleInfo?.weight,
+  });
+  const fare = calculateTowingFare(distanceKm, {
+    includeRescue: rescueRequested,
+    ...pricingVehicle,
+  });
   const durationMinutes =
     resolved.durationMinutes && resolved.durationMinutes > 0
       ? resolved.durationMinutes
@@ -300,14 +339,23 @@ export const createTrip = catchAsync(async (req, res) => {
         coordinates: [Number(dropoffLng) || 0, Number(dropoffLat) || 0],
       },
     },
-    vehicleInfo: vehicleInfo || {},
+    vehicleInfo: {
+      ...(vehicleInfo || {}),
+      type: pricingVehicle.vehicleType,
+      weightBand: pricingVehicle.weightBand || "",
+    },
     price: safePrice,
     estimatedDistance: distanceKm,
     estimatedDuration: durationMinutes,
     priceBreakdown: {
       basePrice: fare.basePrice,
+      vehicleType: fare.vehicleType,
+      weightBand: fare.weightBand || "",
+      includedKm: fare.includedKm,
+      additionalKmPrice: fare.additionalKmPrice,
       nightSurcharge: fare.nightSurcharge,
       shabbatSurcharge: fare.shabbatSurcharge,
+      holidaySurcharge: fare.holidaySurcharge,
       rescueFee: fare.rescueFee,
       towingFee: fare.towingFee,
       serviceFee: fare.serviceFee,
@@ -318,6 +366,7 @@ export const createTrip = catchAsync(async (req, res) => {
       includeRescue: rescueRequested,
       isNight: fare.isNight,
       isShabbat: fare.isShabbat,
+      isHoliday: fare.isHoliday,
     },
     paymentMethod: paymentMethod || "cash",
     notes: notes || "",
@@ -578,7 +627,6 @@ export const acceptTrip = catchAsync(async (req, res) => {
   // Driver may adjust the price when accepting (editable price on the Rescue call card).
   if (price !== undefined && price !== null && Number(price) > 0) {
     const isRescueOrder =
-      trip.tripType === "roadside" ||
       trip.tripType === "rescue" ||
       trip.tripType === "extraction" ||
       trip.priceBreakdown?.includeRescue === true ||
@@ -981,7 +1029,6 @@ export const updateRescuePrice = catchAsync(async (req, res) => {
 
   // Only allow price edits on Rescue trips
   const isRescueOrder =
-    trip.tripType === "roadside" ||
     trip.tripType === "rescue" ||
     trip.tripType === "extraction" ||
     trip.priceBreakdown?.includeRescue === true ||

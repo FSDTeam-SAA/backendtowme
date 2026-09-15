@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "seed:admin": "node utils/seedAdmin.js"
+    "seed:admin": "node utils/seedAdmin.js",
+    "test": "node utils/towingPricing.test.js"
   },
   "keywords": [
     "tow",
