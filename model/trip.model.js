@@ -52,6 +52,13 @@ const tripSchema = new Schema(
       weight: { type: Number },
     },
 
+    // Contact snapshot for this booking (may differ from the saved profile).
+    contactInfo: {
+      name: { type: String, default: "" },
+      phoneNumber: { type: String, default: "" },
+      smsUpdates: { type: Boolean, default: true },
+    },
+
     // Pricing
     price: { type: Number, default: 0 },
     estimatedDistance: { type: Number, default: 0 }, // km

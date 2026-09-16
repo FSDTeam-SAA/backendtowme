@@ -81,11 +81,10 @@ const withCustomerContact = (tripDoc) => {
   if (!tripDoc) return tripDoc;
   const obj = typeof tripDoc.toObject === "function" ? tripDoc.toObject() : { ...tripDoc };
   const customer = obj.customerId && typeof obj.customerId === "object" ? obj.customerId : null;
-  if (customer) {
-    obj.customerName = customer.name || obj.customerName || "";
-    obj.customerPhone = customer.phoneNumber || customer.phone || obj.customerPhone || "";
-    obj.customerPhoneNumber = obj.customerPhone;
-  }
+  obj.customerName = obj.contactInfo?.name || customer?.name || obj.customerName || "";
+  obj.customerPhone =
+    obj.contactInfo?.phoneNumber || customer?.phoneNumber || customer?.phone || obj.customerPhone || "";
+  obj.customerPhoneNumber = obj.customerPhone;
   return obj;
 };
 
@@ -261,6 +260,7 @@ export const createTrip = catchAsync(async (req, res) => {
     tripType, pickupAddress, pickupLat, pickupLng,
     dropoffAddress, dropoffLat, dropoffLng,
     vehicleInfo, price, paymentMethod, notes,
+    contactName, contactPhone, smsUpdates,
     estimatedDistance, estimatedDuration,
     includeRescue, isRescue,
   } = req.body;
@@ -343,6 +343,11 @@ export const createTrip = catchAsync(async (req, res) => {
       ...(vehicleInfo || {}),
       type: pricingVehicle.vehicleType,
       weightBand: pricingVehicle.weightBand || "",
+    },
+    contactInfo: {
+      name: String(contactName || req.user.name || "").trim(),
+      phoneNumber: String(contactPhone || req.user.phoneNumber || "").trim(),
+      smsUpdates: smsUpdates !== false,
     },
     price: safePrice,
     estimatedDistance: distanceKm,

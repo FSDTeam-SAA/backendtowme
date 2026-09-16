@@ -9,9 +9,11 @@ import { protect, isAdmin, isDriver, isCustomer } from "../middleware/auth.middl
 
 const router = express.Router();
 
+// Public pricing preview. Creating or managing a trip still requires a customer session.
+router.post("/estimate", estimateTrip);
+
 // Customer routes
 router.post("/", protect, isCustomer, createTrip);
-router.post("/estimate", protect, isCustomer, estimateTrip);
 router.get("/my", protect, isCustomer, getMyTripsAsCustomer);
 router.post("/:id/cancel", protect, isCustomer, cancelTripByCustomer);
 router.post("/:id/rate", protect, isCustomer, rateTrip);

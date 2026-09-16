@@ -8,6 +8,7 @@ import supportRoute from "../route/support.route.js";
 import analyticsRoute from "../route/analytics.route.js";
 import notificationRoute from "../route/notification.route.js";
 import vehicleRoute from "../route/vehicle.route.js";
+import locationRoute from "../route/location.route.js";
 
 const router = express.Router();
 
@@ -19,5 +20,6 @@ router.use("/support", supportRoute);
 router.use("/analytics", analyticsRoute);
 router.use("/notifications", notificationRoute);
 router.use("/vehicles", vehicleRoute);
+router.use("/locations", locationRoute);
 
 export default router;
