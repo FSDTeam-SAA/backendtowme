@@ -60,7 +60,8 @@ app.use(notFound);
 app.use(globalErrorHandler);
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, async () => {
+const HOST = process.env.HOST || "127.0.0.1";
+server.listen(PORT, HOST, async () => {
   console.log(`🚗 TOW ME Server is running on port ${PORT}`);
 
   try {
