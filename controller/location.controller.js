@@ -62,14 +62,22 @@ export const searchLocations = catchAsync(async (req, res) => {
   const key = `search:${query.toLowerCase()}`;
   let places = readCache(key);
   if (!places) {
-    const data = await nominatim("/search", {
+    let data = await nominatim("/search", {
       q: query,
       format: "jsonv2",
       addressdetails: "1",
       countrycodes: "il",
       limit: "6",
     });
-    places = writeCache(key, data.map(normalizePlace).filter(Boolean));
+    if (!data || !data.length) {
+      data = await nominatim("/search", {
+        q: query,
+        format: "jsonv2",
+        addressdetails: "1",
+        limit: "6",
+      });
+    }
+    places = writeCache(key, (data || []).map(normalizePlace).filter(Boolean));
   }
 
   sendResponse(res, {
