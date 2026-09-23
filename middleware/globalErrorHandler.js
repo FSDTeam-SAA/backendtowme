@@ -47,12 +47,15 @@ const globalErrorHandler = (err, req, res, next) => {
     message: toHebrew(s?.message),
   }));
 
+  // Internals stay server-side in production: stack traces expose file paths
+  // and code structure to anyone who can trigger an error.
+  const isProduction = process.env.NODE_ENV === "production";
+
   return res.status(statusCode).json({
     success: false,
     message,
     errorSources,
-    err,
-    stack: err?.stack || null,
+    ...(isProduction ? {} : { err, stack: err?.stack || null }),
   });
 };
 
