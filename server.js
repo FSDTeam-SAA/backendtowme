@@ -10,6 +10,7 @@ import { createServer } from "http";
 import globalErrorHandler from "./middleware/globalErrorHandler.js";
 import notFound from "./middleware/notFound.js";
 import { syncUserIndexes } from "./utils/syncUserIndexes.js";
+import { initRealtime } from "./utils/realtime.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +21,8 @@ const app = express();
 app.set("trust proxy", true);
 
 const server = createServer(app);
+
+initRealtime(server);
 
 app.use(
   cors({

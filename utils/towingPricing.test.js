@@ -1,5 +1,6 @@
 import {
   calculateTowingFare,
+  calculateCancellationFee,
   distanceBasePrice,
   isJewishHoliday,
   normalizeVehicleType,
@@ -43,29 +44,55 @@ const car = calculateTowingFare(5, {
   forceNight: false, forceShabbat: false, forceHoliday: false,
 });
 assertEq("car rescue", car.rescueFee, 400);
-assertEq("no service fee", car.serviceFee, 0);
-assertEq("car VAT", car.vat, 126);
-assertEq("car total", car.total, 826);
+assertEq("service fee", car.serviceFee, 25);
+assertEq("car taxable subtotal", car.taxableSubtotal, 725);
+assertEq("car VAT", car.vat, 130.5);
+assertEq("car total", car.total, 855.5);
 
 const motorcycle = calculateTowingFare(10, {
   vehicleType: "motorcycle", includeRescue: true,
   forceNight: false, forceShabbat: false, forceHoliday: false,
 });
 assertEq("motorcycle rescue", motorcycle.rescueFee, 200);
-assertEq("motorcycle total", motorcycle.total, 472);
+assertEq("motorcycle total", motorcycle.total, 501.5);
 
 const surcharges = calculateTowingFare(5, {
   vehicleType: "car", forceNight: true, forceShabbat: true, forceHoliday: false,
 });
 assertEq("night surcharge", surcharges.nightSurcharge, 150);
 assertEq("Shabbat surcharge", surcharges.shabbatSurcharge, 150);
-assertEq("night and Shabbat total", surcharges.total, 708);
+assertEq("night and Shabbat total", surcharges.total, 737.5);
 
 const holiday = calculateTowingFare(5, {
   vehicleType: "car", forceNight: false, forceShabbat: false, forceHoliday: true,
 });
 assertEq("holiday surcharge", holiday.holidaySurcharge, 150);
 assertEq("Rosh Hashanah detection", isJewishHoliday(new Date("2026-09-12T09:00:00Z")), true);
+
+const cancelAt = new Date("2026-09-22T12:00:00Z");
+const minutesAgo = (m) => new Date(cancelAt.getTime() - m * 60000);
+const cancelFee = (opts) =>
+  calculateCancellationFee({ fullFare: 855.5, at: cancelAt, ...opts });
+
+assertEq("cancel before a driver accepts", cancelFee({ acceptedAt: null }).fee, 0);
+assertEq("cancel 2 min after accept", cancelFee({ acceptedAt: minutesAgo(2) }).fee, 0);
+assertEq("cancel 5 min after accept", cancelFee({ acceptedAt: minutesAgo(5) }).fee, 150);
+assertEq("cancel 20 min after accept", cancelFee({ acceptedAt: minutesAgo(20) }).fee, 150);
+assertEq(
+  "cancel once driver arrived",
+  cancelFee({ acceptedAt: minutesAgo(20), arrivedAt: minutesAgo(3) }).fee,
+  855.5,
+);
+assertEq(
+  "cancel once the job started",
+  cancelFee({ acceptedAt: minutesAgo(20), startedAt: minutesAgo(1) }).fee,
+  855.5,
+);
+assertEq(
+  "arrival beats the 5-minute tier",
+  cancelFee({ acceptedAt: minutesAgo(2), arrivedAt: minutesAgo(1) }).reason,
+  "driver_arrived",
+);
 
 let missingWeightRejected = false;
 try {

@@ -4,7 +4,7 @@ import {
   toggleDriverBlock, deleteDriver,
   getDriverProfile, updateDriverProfile, toggleAvailability,
   updateLocation, getMyTrips, getDriverFinancials, changeDriverPassword,
-  registerFcmToken, removeFcmToken,
+  registerFcmToken, removeFcmToken, setDriverApproval,
 } from "../controller/driver.controller.js";
 import { protect, isAdmin, isDriver } from "../middleware/auth.middleware.js";
 import upload from "../middleware/multer.middleware.js";
@@ -24,6 +24,7 @@ router.put(
     { name: "vehicleRegistration", maxCount: 1 },
     { name: "insuranceDocument", maxCount: 1 },
     { name: "cargoInsuranceDocument", maxCount: 1 },
+    { name: "thirdPartyInsuranceDocument", maxCount: 1 },
   ]),
   updateDriverProfile
 );
@@ -39,6 +40,8 @@ router.post("/", protect, isAdmin,
     { name: "profileImage", maxCount: 1 },
     { name: "vehicleRegistration", maxCount: 1 },
     { name: "insuranceDocument", maxCount: 1 },
+    { name: "cargoInsuranceDocument", maxCount: 1 },
+    { name: "thirdPartyInsuranceDocument", maxCount: 1 },
   ]),
   createDriver
 );
@@ -49,9 +52,12 @@ router.put("/:id", protect, isAdmin,
     { name: "profileImage", maxCount: 1 },
     { name: "vehicleRegistration", maxCount: 1 },
     { name: "insuranceDocument", maxCount: 1 },
+    { name: "cargoInsuranceDocument", maxCount: 1 },
+    { name: "thirdPartyInsuranceDocument", maxCount: 1 },
   ]),
   updateDriver
 );
+router.patch("/:id/approval", protect, isAdmin, setDriverApproval);
 router.patch("/:id/toggle-block", protect, isAdmin, toggleDriverBlock);
 router.delete("/:id", protect, isAdmin, deleteDriver);
 

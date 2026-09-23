@@ -16,8 +16,11 @@ import {
   normalizeVehicleType,
   normalizeWeightBand,
   requiresWeightBand,
+  calculateCancellationFee,
+  CANCELLATION,
 } from "../utils/towingPricing.js";
 import { getDrivingDistanceKm } from "../utils/googleMapsDistance.js";
+import { emitToAdmins, EVENTS } from "../utils/realtime.js";
 
 // ============ CUSTOMER: PRICE ESTIMATE ============
 // Rate card: utils/towingPricing.js
@@ -386,9 +389,13 @@ export const createTrip = catchAsync(async (req, res) => {
     relatedId: trip._id,
   });
 
-  // Notify available drivers about new pending trip (in-app + device push)
+  // Notify available drivers about new pending trip (in-app + device push).
+  // Drivers awaiting administrator approval are never dispatched to.
   const availableDrivers = await Driver.find({
     availabilityStatus: "available",
+    isVerified: true,
+    isBlocked: { $ne: true },
+    accountStatus: { $ne: false },
   }).select("userId");
   const driverUserIds = availableDrivers
     .map((d) => d.userId)
@@ -415,6 +422,8 @@ export const createTrip = catchAsync(async (req, res) => {
   }).catch((err) => {
     console.error("[createTrip] push notify failed:", err?.message || err);
   });
+
+  emitToAdmins(EVENTS.TRIP_CREATED, trip);
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
@@ -497,16 +506,24 @@ export const cancelTripByCustomer = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Trip not found");
   }
 
-  if (!["pending", "accepted", "in_progress"].includes(trip.status)) {
+  if (!["pending", "accepted", "arrived", "in_progress"].includes(trip.status)) {
     throw new AppError(httpStatus.BAD_REQUEST, "Trip cannot be cancelled at this stage");
   }
 
   const assignedDriverId = trip.driverId;
+  const { fee, reason: feeReason } = calculateCancellationFee({
+    acceptedAt: trip.acceptedAt,
+    arrivedAt: trip.arrivedAt,
+    startedAt: trip.startedAt,
+    fullFare: trip.price,
+  });
 
   trip.status = "cancelled";
   trip.cancellationReason = (reason && String(reason).trim()) ? String(reason).trim() : "";
   trip.cancelledBy = "customer";
   trip.cancelledAt = new Date();
+  trip.cancellationFee = fee;
+  trip.cancellationFeeReason = feeReason;
   await trip.save();
 
   // Free the assigned driver so they can take new calls.
@@ -516,11 +533,90 @@ export const cancelTripByCustomer = catchAsync(async (req, res) => {
     });
   }
 
+  if (fee > 0 && assignedDriverId) {
+    await Transaction.create({
+      tripId: trip._id,
+      customerId: trip.customerId,
+      driverId: assignedDriverId,
+      amount: fee,
+      type: "cancellation_fee",
+      paymentMethod: trip.paymentMethod,
+      status: "pending",
+      description: `Cancellation fee (${feeReason})`,
+    });
+  }
+
+  emitToAdmins(EVENTS.TRIP_UPDATED, trip);
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: "Trip cancelled",
+    message: fee > 0 ? `Trip cancelled — ${fee} ILS cancellation fee applies` : "Trip cancelled",
     data: trip,
+  });
+});
+
+// ============ CUSTOMER: CANCELLATION QUOTE ============
+
+export const getCancellationQuote = catchAsync(async (req, res) => {
+  const { id } = req.params;
+
+  const trip = await Trip.findOne({ _id: id, customerId: req.user._id });
+  if (!trip) {
+    throw new AppError(httpStatus.NOT_FOUND, "Trip not found");
+  }
+
+  const { fee, reason } = calculateCancellationFee({
+    acceptedAt: trip.acceptedAt,
+    arrivedAt: trip.arrivedAt,
+    startedAt: trip.startedAt,
+    fullFare: trip.price,
+  });
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Cancellation quote",
+    data: {
+      fee,
+      reason,
+      currency: "ILS",
+      freeWindowMinutes: CANCELLATION.freeWindowMinutes,
+      lateFee: CANCELLATION.lateFee,
+      fullFare: trip.price,
+      driverArrived: Boolean(trip.arrivedAt),
+    },
+  });
+});
+
+// ============ DRIVER: MARK ARRIVED AT PICKUP ============
+
+export const markTripArrived = catchAsync(async (req, res) => {
+  const { id } = req.params;
+
+  const driver = await Driver.findOne({ userId: req.user._id });
+  if (!driver) {
+    throw new AppError(httpStatus.NOT_FOUND, "Driver not found");
+  }
+
+  const trip = await Trip.findOne({ _id: id, driverId: driver._id, status: "accepted" });
+  if (!trip) {
+    throw new AppError(httpStatus.NOT_FOUND, "Trip not found or not in accepted state");
+  }
+
+  trip.status = "arrived";
+  trip.arrivedAt = new Date();
+  await trip.save();
+
+  await trip.populate("customerId", "name phoneNumber profileImage");
+
+  emitToAdmins(EVENTS.TRIP_UPDATED, trip);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Arrival confirmed",
+    data: withCustomerContact(trip),
   });
 });
 
@@ -582,6 +678,17 @@ export const getPendingTrips = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Driver profile not found");
   }
 
+  if (!driver.canReceiveTrips()) {
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: "Awaiting administrator approval",
+      data: [],
+      meta: { total: 0, page: Number(page), limit: Number(limit), totalPages: 0 },
+    });
+    return;
+  }
+
   const query = {
     status: "pending",
     driverId: null,
@@ -615,6 +722,13 @@ export const acceptTrip = catchAsync(async (req, res) => {
   const driver = await Driver.findOne({ userId: req.user._id });
   if (!driver) {
     throw new AppError(httpStatus.NOT_FOUND, "Driver profile not found");
+  }
+
+  if (!driver.canReceiveTrips()) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      "Your account is awaiting administrator approval",
+    );
   }
 
   if (driver.availabilityStatus !== "available") {
@@ -661,6 +775,8 @@ export const acceptTrip = catchAsync(async (req, res) => {
 
   await trip.populate("customerId", "name phoneNumber profileImage");
 
+  emitToAdmins(EVENTS.TRIP_UPDATED, trip);
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -706,7 +822,7 @@ export const rejectTrip = catchAsync(async (req, res) => {
   // - fullCancel: permanently cancel the ride (cancel-order button)
   const assignedToMe =
     trip.driverId?.toString() === driver._id.toString() &&
-    ["accepted", "in_progress"].includes(trip.status);
+    ["accepted", "arrived", "in_progress"].includes(trip.status);
 
   if (!assignedToMe) {
     throw new AppError(httpStatus.NOT_FOUND, "Trip not found");
@@ -721,6 +837,8 @@ export const rejectTrip = catchAsync(async (req, res) => {
 
     driver.availabilityStatus = "available";
     await driver.save();
+
+    emitToAdmins(EVENTS.TRIP_UPDATED, trip);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -762,7 +880,11 @@ export const startTrip = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Driver not found");
   }
 
-  const trip = await Trip.findOne({ _id: id, driverId: driver._id, status: "accepted" });
+  const trip = await Trip.findOne({
+    _id: id,
+    driverId: driver._id,
+    status: { $in: ["accepted", "arrived"] },
+  });
   if (!trip) {
     throw new AppError(httpStatus.NOT_FOUND, "Trip not found or not in accepted state");
   }
@@ -772,6 +894,8 @@ export const startTrip = catchAsync(async (req, res) => {
   await trip.save();
 
   await trip.populate("customerId", "name phoneNumber profileImage");
+
+  emitToAdmins(EVENTS.TRIP_UPDATED, trip);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -845,6 +969,8 @@ export const completeTrip = catchAsync(async (req, res) => {
     type: "trip_completed",
     relatedId: trip._id,
   });
+
+  emitToAdmins(EVENTS.TRIP_UPDATED, trip);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -951,6 +1077,8 @@ export const cancelTripByAdmin = catchAsync(async (req, res) => {
     await Driver.findByIdAndUpdate(trip.driverId, { availabilityStatus: "available" });
   }
 
+  emitToAdmins(EVENTS.TRIP_UPDATED, trip);
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -1002,6 +1130,8 @@ export const assignDriver = catchAsync(async (req, res) => {
       console.error("[assignDriver] push notify failed:", err?.message || err);
     });
   }
+
+  emitToAdmins(EVENTS.TRIP_UPDATED, trip);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

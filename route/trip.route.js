@@ -4,6 +4,7 @@ import {
   cancelTripByCustomer, rateTrip, estimateTrip, getTripDriverLocation,
   getPendingTrips, acceptTrip, rejectTrip, startTrip, completeTrip,
   getAllTrips, cancelTripByAdmin, assignDriver, updateRescuePrice,
+  getCancellationQuote, markTripArrived,
 } from "../controller/trip.controller.js";
 import { protect, isAdmin, isDriver, isCustomer } from "../middleware/auth.middleware.js";
 
@@ -15,6 +16,7 @@ router.post("/estimate", estimateTrip);
 // Customer routes
 router.post("/", protect, isCustomer, createTrip);
 router.get("/my", protect, isCustomer, getMyTripsAsCustomer);
+router.get("/:id/cancellation-quote", protect, isCustomer, getCancellationQuote);
 router.post("/:id/cancel", protect, isCustomer, cancelTripByCustomer);
 router.post("/:id/rate", protect, isCustomer, rateTrip);
 router.get("/:id/driver-location", protect, getTripDriverLocation);
@@ -23,6 +25,7 @@ router.get("/:id/driver-location", protect, getTripDriverLocation);
 router.get("/pending", protect, isDriver, getPendingTrips);
 router.post("/:id/accept", protect, isDriver, acceptTrip);
 router.post("/:id/reject", protect, isDriver, rejectTrip);
+router.post("/:id/arrived", protect, isDriver, markTripArrived);
 router.post("/:id/start", protect, isDriver, startTrip);
 router.post("/:id/complete", protect, isDriver, completeTrip);
 router.patch("/:id/rescue-price", protect, isDriver, updateRescuePrice);

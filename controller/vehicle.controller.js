@@ -2,6 +2,7 @@ import catchAsync from "../utils/catchAsync.js";
 import sendResponse from "../utils/sendResponse.js";
 import AppError from "../errors/AppError.js";
 import httpStatus from "http-status";
+import { isAllowedBrand, canonicalBrandName } from "../utils/israeliVehicleBrands.js";
 
 const DATASTORE_URL = "https://data.gov.il/api/3/action/datastore_search";
 
@@ -83,9 +84,10 @@ async function loadManufacturers() {
       const code = Number(record.tozeret_cd);
       if (!Number.isFinite(code)) continue;
 
-      const name = normalizeText(record.tozar || record.tozeret_nm);
-      if (!name) continue;
+      const rawName = normalizeText(record.tozar || record.tozeret_nm);
+      if (!rawName || !isAllowedBrand(rawName)) continue;
 
+      const name = canonicalBrandName(rawName);
       const key = name.toLowerCase();
       const existing = byName.get(key);
       if (existing) {

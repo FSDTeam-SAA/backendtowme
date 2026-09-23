@@ -6,25 +6,26 @@ import {
   logout, refreshToken,
 } from "../controller/auth.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
+import { adminLoginLimiter, authLimiter, otpLimiter } from "../middleware/rateLimit.middleware.js";
 
 const router = express.Router();
 
 // Customer
-router.post("/customer/register", customerRegister);
-router.post("/customer/login", customerLogin);
-router.post("/customer/otp-request", customerOtpRequest);
+router.post("/customer/register", authLimiter, customerRegister);
+router.post("/customer/login", authLimiter, customerLogin);
+router.post("/customer/otp-request", otpLimiter, customerOtpRequest);
 
 // Driver
-router.post("/driver/register", driverRegister);
-router.post("/driver/login", driverLogin);
+router.post("/driver/register", authLimiter, driverRegister);
+router.post("/driver/login", authLimiter, driverLogin);
 
 // Admin
-router.post("/admin/login", adminLogin);
+router.post("/admin/login", adminLoginLimiter, adminLogin);
 
 // Shared
 router.post("/verify-otp", verifyOTP);
-router.post("/resend-otp", resendOTP);
-router.post("/forget-password", forgetPassword);
+router.post("/resend-otp", otpLimiter, resendOTP);
+router.post("/forget-password", otpLimiter, forgetPassword);
 router.post("/verify-reset-otp", verifyResetOTP);
 router.post("/reset-password", resetPassword);
 router.post("/refresh-token", refreshToken);

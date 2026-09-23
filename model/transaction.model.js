@@ -29,7 +29,7 @@ const transactionSchema = new Schema(
 
     type: {
       type: String,
-      enum: ["trip_payment", "commission", "refund", "bonus"],
+      enum: ["trip_payment", "commission", "refund", "bonus", "cancellation_fee"],
       default: "trip_payment",
     },
 

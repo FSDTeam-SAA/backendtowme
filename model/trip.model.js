@@ -89,15 +89,18 @@ const tripSchema = new Schema(
     // Status
     status: {
       type: String,
-      enum: ["pending", "accepted", "in_progress", "completed", "cancelled"],
+      enum: ["pending", "accepted", "arrived", "in_progress", "completed", "cancelled"],
       default: "pending",
     },
 
     cancellationReason: { type: String, default: "" },
     cancelledBy: { type: String, enum: ["customer", "driver", "admin", null], default: null },
+    cancellationFee: { type: Number, default: 0 },
+    cancellationFeeReason: { type: String, default: "" },
 
     // Timestamps
     acceptedAt: { type: Date },
+    arrivedAt: { type: Date },
     startedAt: { type: Date },
     completedAt: { type: Date },
     cancelledAt: { type: Date },

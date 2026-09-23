@@ -213,12 +213,46 @@ const EN_TO_HE = {
   "Trip Requested": "בקשת נסיעה נשלחה",
   "Driver Accepted": "הנהג קיבל את הקריאה",
   "Trip Completed": "הנסיעה הושלמה",
+
+  // Driver approval
+  "Your account is awaiting administrator approval":
+    "החשבון שלך ממתין לאישור מנהל המערכת",
+  "Driver approved": "הנהג אושר",
+  "Driver approval revoked": "אישור הנהג בוטל",
+  "Field 'approved' must be true or false": "יש לציין אישור או דחייה",
+  "Arrival confirmed": "ההגעה אושרה",
+  "Vehicle license": "רישיון רכב",
+  "Mandatory insurance": "ביטוח חובה",
+  "Cargo in transit insurance": "ביטוח סחורה בהעברה",
+  "Third-party / comprehensive insurance": "ביטוח צד ג׳ / מקיף",
+  "Cancellation quote": "חישוב דמי ביטול",
+  "Trip not found or not in accepted state": "הנסיעה לא נמצאה או שאינה במצב מתאים",
 };
+
+/** Translate each item of a comma-separated list, leaving unknowns as-is. */
+const translateList = (list) =>
+  String(list)
+    .split(",")
+    .map((item) => EN_TO_HE[item.trim()] || item.trim())
+    .join(", ");
 
 const DYNAMIC_PATTERNS = [
   {
     re: /^Availability set to (.+)$/i,
     to: (m) => `הזמינות הוגדרה ל־${labelHe(m[1])}`,
+  },
+  {
+    re: /^Driver is missing required documents: (.+)$/i,
+    to: (m) => `חסרים לנהג מסמכים נדרשים: ${translateList(m[1])}`,
+  },
+  {
+    re: /^Your account is awaiting approval\. Upload these documents so an administrator can approve you: (.+)$/i,
+    to: (m) =>
+      `החשבון שלך ממתין לאישור. העלה את המסמכים הבאים כדי שמנהל יוכל לאשר: ${translateList(m[1])}`,
+  },
+  {
+    re: /^Trip cancelled — (.+) ILS cancellation fee applies$/i,
+    to: (m) => `הנסיעה בוטלה — דמי ביטול בסך ${m[1]} ₪`,
   },
   {
     re: /^Payment status updated to (.+)$/i,

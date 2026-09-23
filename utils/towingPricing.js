@@ -17,6 +17,7 @@ export const TRUCK_WEIGHT_BANDS = Object.freeze({
 
 export const PRICING = Object.freeze({
   vatPercent: 18,
+  serviceFee: 25,
   avgSpeedKmh: 40,
   pickupBufferMin: 12,
   vehicles: Object.freeze({
@@ -26,6 +27,39 @@ export const PRICING = Object.freeze({
     work_equipment: Object.freeze({ includedKm: 10, additionalKmPrice: 18, rescueFee: 400 }),
   }),
 });
+
+/**
+ * Cancellation policy shown on the customer's cancellation-warning screen.
+ * The fee only starts once a driver is committed to the job — a pending trip
+ * nobody accepted costs nothing to drop.
+ */
+export const CANCELLATION = Object.freeze({
+  freeWindowMinutes: 5,
+  lateFee: 150,
+});
+
+export const calculateCancellationFee = ({
+  acceptedAt,
+  arrivedAt,
+  startedAt,
+  fullFare = 0,
+  at = new Date(),
+} = {}) => {
+  // startedAt counts as arrival: the driver app moves straight to in_progress
+  // once the driver reaches the customer and begins the job.
+  if (arrivedAt || startedAt) {
+    return { fee: Number(Number(fullFare).toFixed(2)), reason: "driver_arrived" };
+  }
+  if (!acceptedAt) {
+    return { fee: 0, reason: "no_driver_assigned" };
+  }
+
+  const elapsedMinutes = (at.getTime() - new Date(acceptedAt).getTime()) / 60000;
+  if (elapsedMinutes < CANCELLATION.freeWindowMinutes) {
+    return { fee: 0, reason: "within_free_window" };
+  }
+  return { fee: CANCELLATION.lateFee, reason: "late_cancellation" };
+};
 
 const VEHICLE_ALIASES = new Map([
   ["car", VEHICLE_TYPES.CAR], ["private", VEHICLE_TYPES.CAR],
@@ -141,14 +175,15 @@ export const calculateTowingFare = (distanceKm, opts = {}) => {
   const towingFee = Number(
     (base + rescueFee + nightSurcharge + shabbatSurcharge + holidaySurcharge).toFixed(2),
   );
-  const taxableSubtotal = towingFee;
+  const serviceFee = typeof opts.serviceFee === "number" ? opts.serviceFee : PRICING.serviceFee;
+  const taxableSubtotal = Number((towingFee + serviceFee).toFixed(2));
   const vat = Number((taxableSubtotal * (PRICING.vatPercent / 100)).toFixed(2));
   const total = Number((taxableSubtotal + vat).toFixed(2));
   return {
     vehicleType, weightBand, includedKm: rate.includedKm,
     additionalKmPrice: rate.additionalKmPrice, basePrice: base,
     nightSurcharge, shabbatSurcharge, holidaySurcharge, rescueFee,
-    towingFee, serviceFee: 0, taxableSubtotal, vat,
+    towingFee, serviceFee, taxableSubtotal, vat,
     vatPercent: PRICING.vatPercent, total, isNight: night,
     isShabbat: shabbat, isHoliday: holiday,
   };

@@ -2,6 +2,7 @@ import User from "../model/user.model.js";
 import Driver from "../model/driver.model.js";
 import Trip from "../model/trip.model.js";
 import Transaction from "../model/transaction.model.js";
+import Notification from "../model/notification.model.js";
 import AppError from "../errors/AppError.js";
 import catchAsync from "../utils/catchAsync.js";
 import httpStatus from "http-status";
@@ -9,6 +10,7 @@ import sendResponse from "../utils/sendResponse.js";
 import { uploadOnCloudinary } from "../utils/commonMethod.js";
 import { generateOTP } from "../utils/commonMethod.js";
 import { createToken } from "../utils/authToken.js";
+import { emitToAdmins, EVENTS } from "../utils/realtime.js";
 
 // ============ ADMIN: CREATE DRIVER ============
 
@@ -214,6 +216,65 @@ export const updateDriver = catchAsync(async (req, res) => {
   });
 });
 
+// ============ ADMIN: APPROVE/REJECT DRIVER ============
+
+export const setDriverApproval = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { approved, reason } = req.body;
+
+  if (typeof approved !== "boolean") {
+    throw new AppError(httpStatus.BAD_REQUEST, "Field 'approved' must be true or false");
+  }
+
+  const driver = await Driver.findById(id);
+  if (!driver) {
+    throw new AppError(httpStatus.NOT_FOUND, "Driver not found");
+  }
+
+  if (approved) {
+    const missing = driver.missingDocuments();
+    if (missing.length) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        `Driver is missing required documents: ${missing.join(", ")}`,
+      );
+    }
+    driver.isVerified = true;
+    driver.approvedAt = new Date();
+    driver.rejectionReason = "";
+  } else {
+    driver.isVerified = false;
+    driver.approvedAt = null;
+    driver.rejectionReason = reason ? String(reason).trim() : "";
+    driver.availabilityStatus = "offline";
+  }
+
+  await driver.save();
+
+  await Notification.create({
+    userId: driver.userId,
+    title: approved ? "החשבון אושר" : "החשבון לא אושר",
+    message: approved
+      ? "החשבון שלך אושר. אפשר להתחיל לקבל קריאות."
+      : driver.rejectionReason || "החשבון שלך לא אושר. פנה לתמיכה לפרטים.",
+    type: "system",
+    relatedId: driver._id,
+  });
+
+  emitToAdmins(EVENTS.DRIVER_UPDATED, driver);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: approved ? "Driver approved" : "Driver approval revoked",
+    data: {
+      isVerified: driver.isVerified,
+      approvedAt: driver.approvedAt,
+      rejectionReason: driver.rejectionReason,
+    },
+  });
+});
+
 // ============ ADMIN: BLOCK/UNBLOCK DRIVER ============
 
 export const toggleDriverBlock = catchAsync(async (req, res) => {
@@ -285,6 +346,7 @@ export const updateDriverProfile = catchAsync(async (req, res) => {
     firstName, lastName, email, vehicleColor,
     phoneNumber, operatingArea, vehicleType, licenseNumber, vehicleYear,
     vehicleRegistrationExpiresAt, insuranceExpiresAt, cargoInsuranceExpiresAt,
+    thirdPartyInsuranceExpiresAt,
   } = req.body;
 
   const driver = await Driver.findOne({ userId: req.user._id });
@@ -336,6 +398,9 @@ export const updateDriverProfile = catchAsync(async (req, res) => {
   if (cargoInsuranceExpiresAt) {
     driver.cargoInsuranceExpiresAt = new Date(cargoInsuranceExpiresAt);
   }
+  if (thirdPartyInsuranceExpiresAt) {
+    driver.thirdPartyInsuranceExpiresAt = new Date(thirdPartyInsuranceExpiresAt);
+  }
 
   const files = req.files || {};
   const uploadDoc = async (fileList, folder) => {
@@ -380,6 +445,19 @@ export const updateDriverProfile = catchAsync(async (req, res) => {
     }
   }
 
+  const thirdPartyInsuranceDocument = await uploadDoc(
+    files.thirdPartyInsuranceDocument,
+    "towme/drivers/docs",
+  );
+  if (thirdPartyInsuranceDocument) {
+    driver.thirdPartyInsuranceDocument = thirdPartyInsuranceDocument;
+    if (!driver.thirdPartyInsuranceExpiresAt) {
+      const d = new Date();
+      d.setFullYear(d.getFullYear() + 1);
+      driver.thirdPartyInsuranceExpiresAt = d;
+    }
+  }
+
   await driver.save();
 
   if (Object.keys(userUpdates).length > 0) {
@@ -408,15 +486,25 @@ export const toggleAvailability = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, "Status must be: available, busy, or offline");
   }
 
-  const driver = await Driver.findOneAndUpdate(
-    { userId: req.user._id },
-    { availabilityStatus: status },
-    { new: true }
-  );
-
+  const driver = await Driver.findOne({ userId: req.user._id });
   if (!driver) {
     throw new AppError(httpStatus.NOT_FOUND, "Driver not found");
   }
+
+  if (status !== "offline" && !driver.canReceiveTrips()) {
+    const missing = driver.missingDocuments();
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      missing.length
+        ? `Your account is awaiting approval. Upload these documents so an administrator can approve you: ${missing.join(", ")}`
+        : "Your account is awaiting administrator approval",
+    );
+  }
+
+  driver.availabilityStatus = status;
+  await driver.save();
+
+  emitToAdmins(EVENTS.DRIVER_UPDATED, driver);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
