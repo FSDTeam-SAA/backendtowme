@@ -18,7 +18,10 @@ const publicDir = path.join(__dirname, "public");
 
 const app = express();
 
-app.set("trust proxy", true);
+// Exactly one proxy hop (nginx on this host). "true" would trust any
+// X-Forwarded-For a client sends, letting them forge an IP per request and
+// walk straight through the rate limiter.
+app.set("trust proxy", 1);
 
 const server = createServer(app);
 
