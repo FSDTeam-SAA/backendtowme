@@ -102,10 +102,14 @@ export const customerOtpRequest = catchAsync(async (req, res) => {
   }
 
   const otp = generateOTP();
+  await deliverOtp(user.phoneNumber, otp);
+console.log(otp);
+console.log(user.phoneNumber);
+console.log("otp gesega")
+
   user.setOTP(otp);
   await user.save();
 
-  await deliverOtp(user.phoneNumber, otp);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
