@@ -75,13 +75,15 @@ const cancelFee = (opts) =>
   calculateCancellationFee({ fullFare: 855.5, at: cancelAt, ...opts });
 
 assertEq("cancel before a driver accepts", cancelFee({ acceptedAt: null }).fee, 0);
-assertEq("cancel 2 min after accept", cancelFee({ acceptedAt: minutesAgo(2) }).fee, 0);
+assertEq("cancel 59 seconds after accept", cancelFee({ acceptedAt: minutesAgo(59 / 60) }).fee, 0);
+assertEq("cancel 1 minute after accept", cancelFee({ acceptedAt: minutesAgo(1) }).fee, 50);
+assertEq("cancel 2 min after accept", cancelFee({ acceptedAt: minutesAgo(2) }).fee, 50);
 assertEq("cancel 5 min after accept", cancelFee({ acceptedAt: minutesAgo(5) }).fee, 150);
 assertEq("cancel 20 min after accept", cancelFee({ acceptedAt: minutesAgo(20) }).fee, 150);
 assertEq(
-  "cancel once driver arrived",
-  cancelFee({ acceptedAt: minutesAgo(20), arrivedAt: minutesAgo(3) }).fee,
-  855.5,
+  "arrival does not change fee tier",
+  cancelFee({ acceptedAt: minutesAgo(2), arrivedAt: minutesAgo(1) }).fee,
+  50,
 );
 assertEq(
   "cancel once the job started",
@@ -89,9 +91,9 @@ assertEq(
   855.5,
 );
 assertEq(
-  "arrival beats the 5-minute tier",
-  cancelFee({ acceptedAt: minutesAgo(2), arrivedAt: minutesAgo(1) }).reason,
-  "driver_arrived",
+  "arrival after five minutes stays at late tier",
+  cancelFee({ acceptedAt: minutesAgo(20), arrivedAt: minutesAgo(3) }).fee,
+  150,
 );
 
 let missingWeightRejected = false;

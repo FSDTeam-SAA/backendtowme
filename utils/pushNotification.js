@@ -140,6 +140,7 @@ export async function notifyDriversNewTrip({
   tripId,
   pickupAddress,
   dropoffAddress,
+  tripType,
 }) {
   const User = (await import("../model/user.model.js")).default;
   const users = await User.find({
@@ -161,8 +162,10 @@ export async function notifyDriversNewTrip({
     const pushResult = await sendNewTripPush({
       tokens,
       tripId,
-      title,
-      body,
+      title: tripType === "on_site" ? "קריאת שירות במקום" : title,
+      body: tripType === "on_site"
+        ? `קריאת שירות במקום: ${pickupAddress || "מיקום"}`
+        : body,
       soundEnabled: user.alertSoundsEnabled !== false,
     });
 

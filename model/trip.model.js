@@ -19,7 +19,7 @@ const tripSchema = new Schema(
     // Trip Type
     tripType: {
       type: String,
-      enum: ["towing", "roadside", "flatbed", "new_booking"],
+      enum: ["towing", "roadside", "flatbed", "new_booking", "rescue", "on_site"],
       default: "towing",
     },
 
@@ -58,6 +58,14 @@ const tripSchema = new Schema(
       phoneNumber: { type: String, default: "" },
       smsUpdates: { type: Boolean, default: true },
     },
+    bookingSource: { type: String, enum: ["app", "website"], default: "app" },
+    termsAcceptedAt: { type: Date },
+    destinationHistory: [{
+      address: String,
+      coordinates: { type: [Number], default: undefined },
+      price: Number,
+      changedAt: Date,
+    }],
 
     // Pricing
     price: { type: Number, default: 0 },

@@ -263,13 +263,21 @@ export const createTrip = catchAsync(async (req, res) => {
     tripType, pickupAddress, pickupLat, pickupLng,
     dropoffAddress, dropoffLat, dropoffLng,
     vehicleInfo, price, paymentMethod, notes,
-    contactName, contactPhone, smsUpdates,
+    contactName, contactPhone, smsUpdates, bookingSource, termsAccepted,
     estimatedDistance, estimatedDuration,
     includeRescue, isRescue,
   } = req.body;
 
   if (!pickupAddress || !dropoffAddress) {
     throw new AppError(httpStatus.BAD_REQUEST, "Pickup and dropoff addresses are required");
+  }
+  const resolvedContactName = String(contactName || req.user.name || "").trim();
+  const resolvedContactPhone = String(contactPhone || req.user.phoneNumber || "").trim();
+  if (!resolvedContactName || !/^\+?\d{9,15}$/.test(resolvedContactPhone.replace(/[\s()-]/g, ""))) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Customer name and a valid mobile phone are required");
+  }
+  if (bookingSource === "website" && termsAccepted !== true) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Terms of Use must be accepted");
   }
 
   const rescueRequested =
@@ -348,10 +356,12 @@ export const createTrip = catchAsync(async (req, res) => {
       weightBand: pricingVehicle.weightBand || "",
     },
     contactInfo: {
-      name: String(contactName || req.user.name || "").trim(),
-      phoneNumber: String(contactPhone || req.user.phoneNumber || "").trim(),
+      name: resolvedContactName,
+      phoneNumber: resolvedContactPhone,
       smsUpdates: smsUpdates !== false,
     },
+    bookingSource: bookingSource === "website" ? "website" : "app",
+    termsAcceptedAt: termsAccepted === true ? new Date() : undefined,
     price: safePrice,
     estimatedDistance: distanceKm,
     estimatedDuration: durationMinutes,
@@ -405,8 +415,10 @@ export const createTrip = catchAsync(async (req, res) => {
     driverUserIds.map((userId) =>
       Notification.create({
         userId,
-        title: "קריאה חדשה",
-        message: `קריאת גרירה חדשה: ${pickupAddress} → ${dropoffAddress}`,
+        title: trip.tripType === "on_site" ? "קריאת שירות במקום" : "קריאה חדשה",
+        message: trip.tripType === "on_site"
+          ? `קריאת שירות במקום: ${pickupAddress}`
+          : `קריאת גרירה חדשה: ${pickupAddress} → ${dropoffAddress}`,
         type: "new_trip",
         relatedId: trip._id,
       })
@@ -419,6 +431,7 @@ export const createTrip = catchAsync(async (req, res) => {
     tripId: trip._id,
     pickupAddress,
     dropoffAddress,
+    tripType: trip.tripType,
   }).catch((err) => {
     console.error("[createTrip] push notify failed:", err?.message || err);
   });
@@ -458,6 +471,82 @@ export const getMyTripsAsCustomer = catchAsync(async (req, res) => {
     data: trips,
     meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
   });
+});
+
+const destinationQuoteFor = async (trip, body) => {
+  if (!["pending", "accepted", "arrived", "in_progress"].includes(trip.status)) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Destination cannot be changed at this stage");
+  }
+  const address = String(body.dropoffAddress || "").trim();
+  const lat = Number(body.dropoffLat);
+  const lng = Number(body.dropoffLng);
+  if (!address || !Number.isFinite(lat) || !Number.isFinite(lng) ||
+      lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Valid destination address and coordinates are required");
+  }
+  const [pickupLng, pickupLat] = trip.pickupLocation.coordinates.coordinates;
+  const resolved = await resolveTripDistanceKm({
+    pickupLat, pickupLng, dropoffLat: lat, dropoffLng: lng,
+  });
+  const distanceKm = Math.min(Math.max(0, resolved.distanceRaw), MAX_DISTANCE_KM);
+  const fare = calculateTowingFare(distanceKm, {
+    vehicleType: trip.vehicleInfo.type || "car",
+    weightBand: trip.vehicleInfo.weightBand,
+    includeRescue: trip.priceBreakdown?.includeRescue === true,
+    forceNight: trip.priceBreakdown?.isNight === true,
+    forceShabbat: trip.priceBreakdown?.isShabbat === true,
+    forceHoliday: trip.priceBreakdown?.isHoliday === true,
+    serviceFee: trip.priceBreakdown?.serviceFee,
+  });
+  return {
+    dropoffAddress: address, dropoffLat: lat, dropoffLng: lng,
+    distanceKm, durationMinutes: resolved.durationMinutes,
+    price: fare.total, priceBreakdown: fare,
+    pricedFrom: "original_pickup",
+  };
+};
+
+export const quoteDestinationChange = catchAsync(async (req, res) => {
+  const trip = await Trip.findOne({ _id: req.params.id, customerId: req.user._id });
+  if (!trip) throw new AppError(httpStatus.NOT_FOUND, "Trip not found");
+  const quote = await destinationQuoteFor(trip, req.body);
+  sendResponse(res, { statusCode: httpStatus.OK, success: true,
+    message: "Destination change quote", data: quote });
+});
+
+export const changeDestination = catchAsync(async (req, res) => {
+  const trip = await Trip.findOne({ _id: req.params.id, customerId: req.user._id });
+  if (!trip) throw new AppError(httpStatus.NOT_FOUND, "Trip not found");
+  if (req.body.confirmed !== true || !Number.isFinite(Number(req.body.expectedPrice))) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Customer price confirmation is required");
+  }
+  const quote = await destinationQuoteFor(trip, req.body);
+  if (Math.abs(quote.price - Number(req.body.expectedPrice)) > 0.01) {
+    throw new AppError(httpStatus.CONFLICT, "Price changed. Request a new quote");
+  }
+  trip.destinationHistory.push({
+    address: trip.dropoffLocation.address,
+    coordinates: trip.dropoffLocation.coordinates.coordinates,
+    price: trip.price,
+    changedAt: new Date(),
+  });
+  trip.dropoffLocation = { address: quote.dropoffAddress,
+    coordinates: { type: "Point", coordinates: [quote.dropoffLng, quote.dropoffLat] } };
+  trip.estimatedDistance = quote.distanceKm;
+  trip.estimatedDuration = quote.durationMinutes || trip.estimatedDuration;
+  trip.price = quote.price;
+  trip.priceBreakdown = { ...quote.priceBreakdown,
+    includeRescue: trip.priceBreakdown?.includeRescue === true };
+  await trip.save();
+  if (trip.driverId) {
+    const driver = await Driver.findById(trip.driverId).select("userId");
+    if (driver?.userId) await Notification.create({ userId: driver.userId,
+      title: "Destination updated", message: `Trip #${trip.tripNumber}: ${quote.dropoffAddress}`,
+      type: "system", relatedId: trip._id });
+  }
+  emitToAdmins(EVENTS.TRIP_UPDATED, trip);
+  sendResponse(res, { statusCode: httpStatus.OK, success: true,
+    message: "Destination updated", data: trip });
 });
 
 // ============ CUSTOMER: GET TRIP DETAILS ============
@@ -517,6 +606,11 @@ export const cancelTripByCustomer = catchAsync(async (req, res) => {
     startedAt: trip.startedAt,
     fullFare: trip.price,
   });
+  if (req.body.expectedFee != null &&
+      (!Number.isFinite(Number(req.body.expectedFee)) ||
+       Math.abs(Number(req.body.expectedFee) - fee) > 0.01)) {
+    throw new AppError(httpStatus.CONFLICT, "Cancellation fee changed. Request a new quote");
+  }
 
   trip.status = "cancelled";
   trip.cancellationReason = (reason && String(reason).trim()) ? String(reason).trim() : "";
@@ -582,6 +676,8 @@ export const getCancellationQuote = catchAsync(async (req, res) => {
       reason,
       currency: "ILS",
       freeWindowMinutes: CANCELLATION.freeWindowMinutes,
+      middleWindowMinutes: CANCELLATION.middleWindowMinutes,
+      middleFee: CANCELLATION.middleFee,
       lateFee: CANCELLATION.lateFee,
       fullFare: trip.price,
       driverArrived: Boolean(trip.arrivedAt),
@@ -890,7 +986,11 @@ export const startTrip = catchAsync(async (req, res) => {
   }
 
   trip.status = "in_progress";
-  trip.startedAt = new Date();
+  // Older driver builds call this endpoint when tracking opens. Only an
+  // explicit pickup confirmation may trigger the full-fare cancellation tier.
+  if (req.body?.pickupConfirmed === true) {
+    trip.startedAt = new Date();
+  }
   await trip.save();
 
   await trip.populate("customerId", "name phoneNumber profileImage");
@@ -1126,6 +1226,7 @@ export const assignDriver = catchAsync(async (req, res) => {
       tripId: trip._id,
       pickupAddress: trip.pickupLocation?.address,
       dropoffAddress: trip.dropoffLocation?.address,
+      tripType: trip.tripType,
     }).catch((err) => {
       console.error("[assignDriver] push notify failed:", err?.message || err);
     });

@@ -34,7 +34,9 @@ export const PRICING = Object.freeze({
  * nobody accepted costs nothing to drop.
  */
 export const CANCELLATION = Object.freeze({
-  freeWindowMinutes: 5,
+  freeWindowMinutes: 1,
+  middleWindowMinutes: 5,
+  middleFee: 50,
   lateFee: 150,
 });
 
@@ -45,10 +47,8 @@ export const calculateCancellationFee = ({
   fullFare = 0,
   at = new Date(),
 } = {}) => {
-  // startedAt counts as arrival: the driver app moves straight to in_progress
-  // once the driver reaches the customer and begins the job.
-  if (arrivedAt || startedAt) {
-    return { fee: Number(Number(fullFare).toFixed(2)), reason: "driver_arrived" };
+  if (startedAt) {
+    return { fee: Number(Number(fullFare).toFixed(2)), reason: "trip_started" };
   }
   if (!acceptedAt) {
     return { fee: 0, reason: "no_driver_assigned" };
@@ -57,6 +57,9 @@ export const calculateCancellationFee = ({
   const elapsedMinutes = (at.getTime() - new Date(acceptedAt).getTime()) / 60000;
   if (elapsedMinutes < CANCELLATION.freeWindowMinutes) {
     return { fee: 0, reason: "within_free_window" };
+  }
+  if (elapsedMinutes < CANCELLATION.middleWindowMinutes) {
+    return { fee: CANCELLATION.middleFee, reason: "middle_cancellation" };
   }
   return { fee: CANCELLATION.lateFee, reason: "late_cancellation" };
 };
