@@ -11,6 +11,8 @@ import { uploadOnCloudinary } from "../utils/commonMethod.js";
 import { generateOTP } from "../utils/commonMethod.js";
 import { createToken } from "../utils/authToken.js";
 import { emitToAdmins, EVENTS } from "../utils/realtime.js";
+import { findUserByPhone, normalizePhoneNumber } from "../utils/phoneNumber.js";
+import { settledDriverEarnings } from "../utils/settledDriverEarnings.js";
 
 // ============ ADMIN: CREATE DRIVER ============
 
@@ -25,7 +27,11 @@ export const createDriver = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, "Required fields: firstName, lastName, phoneNumber, vehicleType, licenseNumber, password");
   }
 
-  const existingUser = await User.findOne({ phoneNumber: phoneNumber.trim() });
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  if (!/^\+972\d{9}$/.test(normalizedPhone)) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Valid Israeli phone number is required");
+  }
+  const existingUser = await findUserByPhone(User, normalizedPhone);
   if (existingUser) {
     throw new AppError(httpStatus.BAD_REQUEST, "Phone number already registered");
   }
@@ -33,7 +39,7 @@ export const createDriver = catchAsync(async (req, res) => {
   // Create user account
   const userPayload = {
     name: `${firstName} ${lastName}`,
-    phoneNumber: phoneNumber.trim(),
+    phoneNumber: normalizedPhone,
     password,
     role: "driver",
     isPhoneVerified: true,
@@ -55,6 +61,8 @@ export const createDriver = catchAsync(async (req, res) => {
   // Handle documents
   let vehicleRegistration = { public_id: "", url: "" };
   let insuranceDocument = { public_id: "", url: "" };
+  let cargoInsuranceDocument = { public_id: "", url: "" };
+  let thirdPartyInsuranceDocument = { public_id: "", url: "" };
 
   if (req.files?.vehicleRegistration?.[0]) {
     const uploaded = await uploadOnCloudinary(req.files.vehicleRegistration[0].buffer, { folder: "towme/drivers/docs" });
@@ -64,6 +72,14 @@ export const createDriver = catchAsync(async (req, res) => {
   if (req.files?.insuranceDocument?.[0]) {
     const uploaded = await uploadOnCloudinary(req.files.insuranceDocument[0].buffer, { folder: "towme/drivers/docs" });
     insuranceDocument = { public_id: uploaded.public_id, url: uploaded.secure_url };
+  }
+  if (req.files?.cargoInsuranceDocument?.[0]) {
+    const uploaded = await uploadOnCloudinary(req.files.cargoInsuranceDocument[0].buffer, { folder: "towme/drivers/docs" });
+    cargoInsuranceDocument = { public_id: uploaded.public_id, url: uploaded.secure_url };
+  }
+  if (req.files?.thirdPartyInsuranceDocument?.[0]) {
+    const uploaded = await uploadOnCloudinary(req.files.thirdPartyInsuranceDocument[0].buffer, { folder: "towme/drivers/docs" });
+    thirdPartyInsuranceDocument = { public_id: uploaded.public_id, url: uploaded.secure_url };
   }
 
   // Parse operatingArea
@@ -79,7 +95,7 @@ export const createDriver = catchAsync(async (req, res) => {
     dateOfBirth: dateOfBirth || null,
     idNumber: idNumber || "",
     email: email ? email.toLowerCase().trim() : "",
-    phoneNumber: phoneNumber.trim(),
+    phoneNumber: normalizedPhone,
     profileImage,
     vehicleType,
     licenseNumber: licenseNumber.trim(),
@@ -88,11 +104,13 @@ export const createDriver = catchAsync(async (req, res) => {
     towingCapacity: towingCapacity ? Number(towingCapacity) : 3,
     vehicleRegistration,
     insuranceDocument,
+    cargoInsuranceDocument,
+    thirdPartyInsuranceDocument,
     username: username || "",
     operatingArea: areas,
     commissionPercent: commissionPercent ? Number(commissionPercent) : 15,
     accountStatus: accountStatus !== undefined ? accountStatus : true,
-    isVerified: true,
+    isVerified: false,
   });
 
   sendResponse(res, {
@@ -107,7 +125,7 @@ export const createDriver = catchAsync(async (req, res) => {
 
 export const getAllDrivers = catchAsync(async (req, res) => {
   const {
-    page = 1, limit = 10, status, vehicleType, search,
+    page = 1, limit = 10, status, vehicleType, search, city,
     sortBy = "createdAt", sortOrder = "desc"
   } = req.query;
 
@@ -117,6 +135,7 @@ export const getAllDrivers = catchAsync(async (req, res) => {
   if (status === "available") query.availabilityStatus = "available";
   else if (status === "unavailable") query.availabilityStatus = { $ne: "available" };
   if (vehicleType) query.vehicleType = vehicleType;
+  if (city) query.operatingArea = { $regex: city, $options: "i" };
   if (search) {
     query.$or = [
       { firstName: { $regex: search, $options: "i" } },
@@ -132,6 +151,10 @@ export const getAllDrivers = catchAsync(async (req, res) => {
     Driver.find(query).populate("userId", "name email phoneNumber profileImage isBlocked").sort(sortObj).skip(skip).limit(Number(limit)),
     Driver.countDocuments(query),
   ]);
+  const earnings = await settledDriverEarnings(drivers.map((driver) => driver._id));
+  const driversWithEarnings = drivers.map((driver) => ({
+    ...driver.toObject(), totalEarnings: earnings.get(String(driver._id)) || 0,
+  }));
 
   const available = await Driver.countDocuments({ availabilityStatus: "available" });
   const unavailable = await Driver.countDocuments({ availabilityStatus: { $ne: "available" } });
@@ -144,7 +167,7 @@ export const getAllDrivers = catchAsync(async (req, res) => {
     success: true,
     message: "Drivers fetched successfully",
     data: {
-      drivers,
+      drivers: driversWithEarnings,
       stats: { total, available, unavailable, newThisMonth },
     },
     meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
@@ -164,14 +187,14 @@ export const getDriverById = catchAsync(async (req, res) => {
 
   const recentTrips = await Trip.find({ driverId: driver._id })
     .sort({ createdAt: -1 })
-    .limit(10)
     .populate("customerId", "name phoneNumber profileImage");
+  const earnings = await settledDriverEarnings([driver._id]);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Driver fetched successfully",
-    data: { driver, recentTrips },
+    data: { driver: { ...driver.toObject(), totalEarnings: earnings.get(String(driver._id)) || 0 }, recentTrips },
   });
 });
 
@@ -179,11 +202,28 @@ export const getDriverById = catchAsync(async (req, res) => {
 
 export const updateDriver = catchAsync(async (req, res) => {
   const { id } = req.params;
-  const updateData = { ...req.body };
+  const allowed = [
+    "firstName", "lastName", "dateOfBirth", "idNumber", "email", "phoneNumber",
+    "vehicleType", "licenseNumber", "vehicleYear", "vehicleColor", "towingCapacity",
+    "username", "operatingArea", "commissionPercent", "accountStatus", "notes",
+  ];
+  const updateData = Object.fromEntries(
+    allowed.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field]]),
+  );
 
   const driver = await Driver.findById(id);
   if (!driver) {
     throw new AppError(httpStatus.NOT_FOUND, "Driver not found");
+  }
+
+  if (updateData.phoneNumber) {
+    const normalizedPhone = normalizePhoneNumber(updateData.phoneNumber);
+    if (!/^\+972\d{9}$/.test(normalizedPhone)) {
+      throw new AppError(httpStatus.BAD_REQUEST, "Valid Israeli phone number is required");
+    }
+    const owner = await findUserByPhone(User, normalizedPhone, { _id: { $ne: driver.userId } });
+    if (owner) throw new AppError(httpStatus.CONFLICT, "Phone number already registered");
+    updateData.phoneNumber = normalizedPhone;
   }
 
   if (req.files?.profileImage?.[0]) {
@@ -201,12 +241,27 @@ export const updateDriver = catchAsync(async (req, res) => {
     const uploaded = await uploadOnCloudinary(req.files.insuranceDocument[0].buffer, { folder: "towme/drivers/docs" });
     updateData.insuranceDocument = { public_id: uploaded.public_id, url: uploaded.secure_url };
   }
+  if (req.files?.cargoInsuranceDocument?.[0]) {
+    const uploaded = await uploadOnCloudinary(req.files.cargoInsuranceDocument[0].buffer, { folder: "towme/drivers/docs" });
+    updateData.cargoInsuranceDocument = { public_id: uploaded.public_id, url: uploaded.secure_url };
+  }
+  if (req.files?.thirdPartyInsuranceDocument?.[0]) {
+    const uploaded = await uploadOnCloudinary(req.files.thirdPartyInsuranceDocument[0].buffer, { folder: "towme/drivers/docs" });
+    updateData.thirdPartyInsuranceDocument = { public_id: uploaded.public_id, url: uploaded.secure_url };
+  }
 
   if (updateData.operatingArea && typeof updateData.operatingArea === "string") {
     updateData.operatingArea = JSON.parse(updateData.operatingArea);
   }
 
   const updatedDriver = await Driver.findByIdAndUpdate(id, updateData, { new: true, runValidators: true });
+  const accountUpdates = {};
+  if (updateData.firstName || updateData.lastName) {
+    accountUpdates.name = `${updatedDriver.firstName} ${updatedDriver.lastName}`.trim();
+  }
+  if (updateData.phoneNumber) accountUpdates.phoneNumber = updateData.phoneNumber;
+  if (updateData.email) accountUpdates.email = updateData.email;
+  if (Object.keys(accountUpdates).length) await User.findByIdAndUpdate(driver.userId, accountUpdates, { runValidators: true });
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -232,6 +287,10 @@ export const setDriverApproval = catchAsync(async (req, res) => {
   }
 
   if (approved) {
+    const driverUser = await User.findById(driver.userId);
+    if (driver.isBlocked || driverUser?.isBlocked) {
+      throw new AppError(httpStatus.BAD_REQUEST, "Unlock this driver before approving them");
+    }
     const missing = driver.missingDocuments();
     if (missing.length) {
       throw new AppError(
@@ -243,10 +302,15 @@ export const setDriverApproval = catchAsync(async (req, res) => {
     driver.approvedAt = new Date();
     driver.rejectionReason = "";
   } else {
+    const wasApproved = driver.isVerified;
     driver.isVerified = false;
     driver.approvedAt = null;
     driver.rejectionReason = reason ? String(reason).trim() : "";
     driver.availabilityStatus = "offline";
+    if (wasApproved) {
+      driver.isBlocked = true;
+      await User.findByIdAndUpdate(driver.userId, { isBlocked: true, refreshToken: null });
+    }
   }
 
   await driver.save();
@@ -290,14 +354,25 @@ export const toggleDriverBlock = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, "Driver user account not found");
   }
 
-  user.isBlocked = !user.isBlocked;
+  const code = String(req.body.code || "");
+  const manager = await User.findById(req.user._id).select("+password");
+  if (!code || !(await manager.comparePassword(code))) {
+    throw new AppError(httpStatus.FORBIDDEN, "Invalid manager code");
+  }
+  user.isBlocked = !(driver.isBlocked || user.isBlocked);
+  driver.isBlocked = user.isBlocked;
+  if (driver.isBlocked) {
+    driver.availabilityStatus = "offline";
+    user.refreshToken = null;
+  }
+  await driver.save();
   await user.save();
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: user.isBlocked ? "Driver blocked successfully" : "Driver unblocked successfully",
-    data: { isBlocked: user.isBlocked },
+    data: { isBlocked: driver.isBlocked },
   });
 });
 
@@ -325,17 +400,18 @@ export const deleteDriver = catchAsync(async (req, res) => {
 // ============ DRIVER: GET MY PROFILE ============
 
 export const getDriverProfile = catchAsync(async (req, res) => {
-  const driver = await Driver.findOne({ userId: req.user._id }).populate("userId", "name phoneNumber email profileImage");
+  const driver = await Driver.findOne({ userId: req.user._id }).populate("userId", "name phoneNumber email profileImage isBlocked");
 
   if (!driver) {
     throw new AppError(httpStatus.NOT_FOUND, "Driver profile not found");
   }
+  const earnings = await settledDriverEarnings([driver._id]);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Driver profile fetched",
-    data: driver,
+    data: { ...driver.toObject(), totalEarnings: earnings.get(String(driver._id)) || 0 },
   });
 });
 
@@ -574,9 +650,11 @@ export const getMyTrips = catchAsync(async (req, res) => {
   });
 
   const earningsToday = await Transaction.aggregate([
-    { $match: { driverId: driver._id, createdAt: { $gte: todayStart }, status: "completed" } },
+    { $match: { driverId: driver._id, createdAt: { $gte: todayStart }, status: "completed",
+      type: { $in: ["trip_payment", "cancellation_fee"] } } },
     { $group: { _id: null, total: { $sum: "$driverEarnings" } } },
   ]);
+  const allTimeEarnings = await settledDriverEarnings([driver._id]);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -597,7 +675,7 @@ export const getMyTrips = catchAsync(async (req, res) => {
         totalTrips: driver.totalTrips,
         todayTrips,
         weeklyTrips,
-        totalEarnings: driver.totalEarnings,
+        totalEarnings: allTimeEarnings.get(String(driver._id)) || 0,
         earningsToday: earningsToday[0]?.total || 0,
       },
     },
@@ -627,8 +705,18 @@ export const getDriverFinancials = catchAsync(async (req, res) => {
     .populate("tripId", "tripNumber pickupLocation dropoffLocation createdAt")
     .sort({ createdAt: -1 });
 
-  const totalEarned = transactions.reduce((sum, t) => sum + (t.driverEarnings || 0), 0);
-  const totalCommission = transactions.reduce((sum, t) => sum + (t.commissionAmount || 0), 0);
+  const settled = transactions.filter((item) => item.status === "completed" &&
+    ["trip_payment", "cancellation_fee"].includes(item.type));
+  const pending = transactions.filter((item) => item.status === "pending" &&
+    ["trip_payment", "cancellation_fee"].includes(item.type));
+  const totalEarned = settled.reduce((sum, item) => sum + (item.driverEarnings || 0), 0);
+  const totalCommission = settled.reduce((sum, item) => sum + (item.commissionAmount || 0), 0);
+  const pendingEarnings = pending.reduce((sum, item) => sum + (item.driverEarnings || 0), 0);
+  const allTime = await Transaction.aggregate([
+    { $match: { driverId: driver._id, status: "completed",
+      type: { $in: ["trip_payment", "cancellation_fee"] } } },
+    { $group: { _id: null, total: { $sum: "$driverEarnings" } } },
+  ]);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -639,9 +727,10 @@ export const getDriverFinancials = catchAsync(async (req, res) => {
       summary: {
         totalEarned,
         totalCommission,
+        pendingEarnings,
         totalTrips: transactions.length,
         commissionPercent: driver.commissionPercent,
-        allTimeEarnings: driver.totalEarnings,
+        allTimeEarnings: allTime[0]?.total || 0,
       },
     },
   });

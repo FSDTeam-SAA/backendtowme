@@ -110,6 +110,10 @@ export const REQUIRED_DRIVER_DOCUMENTS = Object.freeze([
   { field: "thirdPartyInsuranceDocument", label: "Third-party / comprehensive insurance" },
 ]);
 
+export const REQUIRED_DRIVER_DOCUMENT_QUERY = Object.fromEntries(
+  REQUIRED_DRIVER_DOCUMENTS.map(({ field }) => [`${field}.url`, { $exists: true, $ne: "" }]),
+);
+
 driverSchema.methods.missingDocuments = function () {
   return REQUIRED_DRIVER_DOCUMENTS.filter(
     (doc) => !this[doc.field]?.url,
@@ -119,15 +123,15 @@ driverSchema.methods.missingDocuments = function () {
 /**
  * Whether this driver may go online, be dispatched, and accept calls.
  *
- * Admin approval is the gate. Documents are checked when an administrator
- * approves the driver, not here — otherwise adding a new required document
- * would instantly take every already-approved driver off the road.
+ * Both approval and the current required documents are needed. This also
+ * protects drivers approved before all four documents became mandatory.
  */
 driverSchema.methods.canReceiveTrips = function () {
   return (
     this.isVerified === true &&
     this.isBlocked !== true &&
-    this.accountStatus !== false
+    this.accountStatus !== false &&
+    this.missingDocuments().length === 0
   );
 };
 

@@ -81,9 +81,9 @@ assertEq("cancel 2 min after accept", cancelFee({ acceptedAt: minutesAgo(2) }).f
 assertEq("cancel 5 min after accept", cancelFee({ acceptedAt: minutesAgo(5) }).fee, 150);
 assertEq("cancel 20 min after accept", cancelFee({ acceptedAt: minutesAgo(20) }).fee, 150);
 assertEq(
-  "arrival does not change fee tier",
+  "arrival triggers full fare",
   cancelFee({ acceptedAt: minutesAgo(2), arrivedAt: minutesAgo(1) }).fee,
-  50,
+  855.5,
 );
 assertEq(
   "cancel once the job started",
@@ -91,9 +91,9 @@ assertEq(
   855.5,
 );
 assertEq(
-  "arrival after five minutes stays at late tier",
+  "arrival after five minutes triggers full fare",
   cancelFee({ acceptedAt: minutesAgo(20), arrivedAt: minutesAgo(3) }).fee,
-  150,
+  855.5,
 );
 
 let missingWeightRejected = false;

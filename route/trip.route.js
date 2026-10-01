@@ -7,7 +7,7 @@ import {
   getCancellationQuote, markTripArrived,
   quoteDestinationChange, changeDestination,
 } from "../controller/trip.controller.js";
-import { protect, isAdmin, isDriver, isCustomer } from "../middleware/auth.middleware.js";
+import { protect, isAdmin, isDriver, isCustomer, requireAdminPermission } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
@@ -34,9 +34,9 @@ router.post("/:id/complete", protect, isDriver, completeTrip);
 router.patch("/:id/rescue-price", protect, isDriver, updateRescuePrice);
 
 // Admin routes
-router.get("/", protect, isAdmin, getAllTrips);
-router.post("/:id/admin-cancel", protect, isAdmin, cancelTripByAdmin);
-router.post("/:id/assign-driver", protect, isAdmin, assignDriver);
+router.get("/", protect, isAdmin, requireAdminPermission("trips"), getAllTrips);
+router.post("/:id/admin-cancel", protect, isAdmin, requireAdminPermission("trips"), cancelTripByAdmin);
+router.post("/:id/assign-driver", protect, isAdmin, requireAdminPermission("trips"), assignDriver);
 
 // Shared (customer, driver, admin)
 router.get("/:id", protect, getTripById);

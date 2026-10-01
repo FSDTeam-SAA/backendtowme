@@ -1,5 +1,5 @@
 import Trip from "../model/trip.model.js";
-import Driver from "../model/driver.model.js";
+import Driver, { REQUIRED_DRIVER_DOCUMENT_QUERY } from "../model/driver.model.js";
 import User from "../model/user.model.js";
 import Transaction from "../model/transaction.model.js";
 import Notification from "../model/notification.model.js";
@@ -40,6 +40,9 @@ async function resolveTripDistanceKm({
   dropoffLng,
   distanceKmOverride,
 }) {
+  if (Number(pickupLat) === Number(dropoffLat) && Number(pickupLng) === Number(dropoffLng)) {
+    return { distanceRaw: 0, durationMinutes: null, distanceSource: "same_location" };
+  }
   try {
     const driving = await getDrivingDistanceKm(
       { lat: pickupLat, lng: pickupLng },
@@ -121,8 +124,11 @@ export const estimateTrip = catchAsync(async (req, res) => {
     weightBand,
     vehicleWeight,
   } = req.body;
+  const onSite = tripType === "on_site";
+  const destinationLat = onSite ? pickupLat : dropoffLat;
+  const destinationLng = onSite ? pickupLng : dropoffLng;
 
-  if ([pickupLat, pickupLng, dropoffLat, dropoffLng].some((v) => v === undefined || v === null)) {
+  if ([pickupLat, pickupLng, destinationLat, destinationLng].some((v) => v === undefined || v === null)) {
     throw new AppError(httpStatus.BAD_REQUEST, "Pickup and dropoff coordinates are required");
   }
 
@@ -130,8 +136,8 @@ export const estimateTrip = catchAsync(async (req, res) => {
   const resolved = await resolveTripDistanceKm({
     pickupLat,
     pickupLng,
-    dropoffLat,
-    dropoffLng,
+    dropoffLat: destinationLat,
+    dropoffLng: destinationLng,
     distanceKmOverride: req.body.distanceKm,
   });
   const distanceRaw = resolved.distanceRaw;
@@ -209,7 +215,9 @@ export const getTripDriverLocation = catchAsync(async (req, res) => {
   }
 
   const isOwner = trip.customerId?.toString() === req.user._id.toString();
-  if (!isOwner && req.user.role !== "admin") {
+  const canAdminView = req.user.role === "admin" &&
+    (req.user.isMasterAdmin || (!req.user.mustChangePin && req.user.adminPermissions?.includes("trips")));
+  if (!isOwner && !canAdminView) {
     throw new AppError(httpStatus.FORBIDDEN, "Access denied");
   }
 
@@ -267,8 +275,12 @@ export const createTrip = catchAsync(async (req, res) => {
     estimatedDistance, estimatedDuration,
     includeRescue, isRescue,
   } = req.body;
+  const onSite = tripType === "on_site";
+  const destinationAddress = onSite ? pickupAddress : dropoffAddress;
+  const destinationLat = onSite ? pickupLat : dropoffLat;
+  const destinationLng = onSite ? pickupLng : dropoffLng;
 
-  if (!pickupAddress || !dropoffAddress) {
+  if (!pickupAddress || !destinationAddress) {
     throw new AppError(httpStatus.BAD_REQUEST, "Pickup and dropoff addresses are required");
   }
   const resolvedContactName = String(contactName || req.user.name || "").trim();
@@ -294,8 +306,8 @@ export const createTrip = catchAsync(async (req, res) => {
   if (
     pickupLat == null ||
     pickupLng == null ||
-    dropoffLat == null ||
-    dropoffLng == null
+    destinationLat == null ||
+    destinationLng == null
   ) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
@@ -306,8 +318,8 @@ export const createTrip = catchAsync(async (req, res) => {
   const resolved = await resolveTripDistanceKm({
     pickupLat,
     pickupLng,
-    dropoffLat,
-    dropoffLng,
+    dropoffLat: destinationLat,
+    dropoffLng: destinationLng,
     distanceKmOverride: estimatedDistance,
   });
   const distanceKm = Math.min(Math.max(0, resolved.distanceRaw), MAX_DISTANCE_KM);
@@ -344,10 +356,10 @@ export const createTrip = catchAsync(async (req, res) => {
       },
     },
     dropoffLocation: {
-      address: dropoffAddress,
+      address: destinationAddress,
       coordinates: {
         type: "Point",
-        coordinates: [Number(dropoffLng) || 0, Number(dropoffLat) || 0],
+        coordinates: [Number(destinationLng) || 0, Number(destinationLat) || 0],
       },
     },
     vehicleInfo: {
@@ -406,6 +418,7 @@ export const createTrip = catchAsync(async (req, res) => {
     isVerified: true,
     isBlocked: { $ne: true },
     accountStatus: { $ne: false },
+    ...REQUIRED_DRIVER_DOCUMENT_QUERY,
   }).select("userId");
   const driverUserIds = availableDrivers
     .map((d) => d.userId)
@@ -418,7 +431,7 @@ export const createTrip = catchAsync(async (req, res) => {
         title: trip.tripType === "on_site" ? "קריאת שירות במקום" : "קריאה חדשה",
         message: trip.tripType === "on_site"
           ? `קריאת שירות במקום: ${pickupAddress}`
-          : `קריאת גרירה חדשה: ${pickupAddress} → ${dropoffAddress}`,
+          : `קריאת גרירה חדשה: ${pickupAddress} → ${destinationAddress}`,
         type: "new_trip",
         relatedId: trip._id,
       })
@@ -430,7 +443,7 @@ export const createTrip = catchAsync(async (req, res) => {
     userIds: driverUserIds,
     tripId: trip._id,
     pickupAddress,
-    dropoffAddress,
+    dropoffAddress: destinationAddress,
     tripType: trip.tripType,
   }).catch((err) => {
     console.error("[createTrip] push notify failed:", err?.message || err);
@@ -565,6 +578,10 @@ export const getTripById = catchAsync(async (req, res) => {
   // Only owner or driver or admin can view
   const isCustomer = trip.customerId?._id?.toString() === req.user._id.toString();
   const isAdmin = req.user.role === "admin";
+  if (isAdmin && !req.user.isMasterAdmin &&
+      (req.user.mustChangePin || !req.user.adminPermissions?.includes("trips"))) {
+    throw new AppError(httpStatus.FORBIDDEN, "Missing administrator permission: trips");
+  }
   let isDriver = false;
 
   if (req.user.role === "driver") {
@@ -1029,7 +1046,8 @@ export const completeTrip = catchAsync(async (req, res) => {
   trip.price = tripPrice;
   trip.status = "completed";
   trip.completedAt = new Date();
-  trip.paymentStatus = "paid";
+  // Service completion does not prove that the customer payment settled.
+  trip.paymentStatus = "pending";
   trip.completionReport = {
     distanceKm: distanceKm !== undefined && distanceKm !== null && distanceKm !== "" ? Number(distanceKm) : null,
     endTime: endTime || "",
@@ -1051,14 +1069,12 @@ export const completeTrip = catchAsync(async (req, res) => {
     commissionPercent,
     type: "trip_payment",
     paymentMethod: trip.paymentMethod,
-    status: "completed",
+    status: "pending",
     description: `תשלום נסיעה #${trip.tripNumber}`,
   });
 
   // Update driver stats
   driver.totalTrips += 1;
-  driver.totalEarnings += tripPrice * (1 - commissionPercent / 100);
-  driver.totalCommissionPaid += tripPrice * (commissionPercent / 100);
   driver.availabilityStatus = "available";
   await driver.save();
 

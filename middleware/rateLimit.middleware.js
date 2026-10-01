@@ -51,6 +51,15 @@ export const adminLoginLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   limit: 10,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => String(req.body?.username || req.body?.email || "").trim().toLowerCase() || ipKeyGenerator(req.ip),
+});
+
+export const adminCodeLimiter = rateLimit({
+  ...base,
+  windowMs: 5 * 60 * 1000,
+  limit: 10,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => req.user?._id?.toString() || ipKeyGenerator(req.ip),
 });
 
 /** Customer and driver sign-in / registration. Failures only. */

@@ -25,7 +25,18 @@ const userSchema = new Schema(
     password: {
       type: String,
       required: [true, "Password is required"],
-      minlength: 6,
+      validate: {
+        validator(value) {
+          if (!this.isModified("password")) return true;
+          if (this.role === "admin" && !this.isMasterAdmin && this.pinSetupPending) {
+            return typeof value === "string" && value.length >= 32;
+          }
+          return this.role === "admin" && !this.isMasterAdmin && this.adminUsername
+            ? /^\d{4}$/.test(value)
+            : value.length >= 6;
+        },
+        message: "Admin PIN must be four digits; other passwords need at least six characters",
+      },
     },
 
     refreshToken: {
@@ -38,6 +49,16 @@ const userSchema = new Schema(
       enum: ["admin", "driver", "customer"],
       default: "customer",
     },
+
+    adminUsername: { type: String, lowercase: true, trim: true },
+    isMasterAdmin: { type: Boolean, default: false },
+    authVersion: { type: Number, default: 0 },
+    mustChangePin: { type: Boolean, default: false },
+    pinSetupPending: { type: Boolean, default: false },
+    adminPermissions: [{
+      type: String,
+      enum: ["dashboard", "drivers", "trips", "customers", "finance", "support", "settings"],
+    }],
 
     isEmailVerified: {
       type: Boolean,
@@ -97,6 +118,15 @@ userSchema.pre("save", function () {
   if (this.email == null || this.email === "") {
     this.email = undefined;
   }
+});
+
+userSchema.index({ adminUsername: 1 }, {
+  unique: true,
+  partialFilterExpression: { adminUsername: { $type: "string" } },
+});
+userSchema.index({ isMasterAdmin: 1 }, {
+  unique: true,
+  partialFilterExpression: { isMasterAdmin: true },
 });
 
 // hash password before save

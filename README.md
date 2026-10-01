@@ -37,13 +37,29 @@ EMAIL_USER=your_email@gmail.com
 EMAIL_PASS=your_app_password
 ```
 
-### 3. Seed Admin Account
+### 3. Bootstrap the single Master Administrator
+Set `ADMIN_EMAIL`, `ADMIN_PASSWORD` (at least six characters), `ADMIN_NAME`, and
+`ADMIN_PHONE` (Israeli mobile number) in the environment, then run:
 ```bash
 npm run seed:admin
 ```
-Default admin credentials:
-- Email: `admin@towme.com`
-- Password: `Admin@1234`
+There are no built-in credentials. If there is exactly one existing administrator,
+`node utils/createAdmin.js --promote-existing` makes that account Master without
+changing its password and revokes its old sessions. New Master accounts can sign
+in with their name or email. The script refuses to create a second Master.
+Other administrators are added in the panel's System Settings by the Master.
+They use their own name as their login identifier and choose a four-digit PIN
+themselves: on the admin sign-in page they select **Set or reset PIN / password**,
+verify their registered phone by SMS, and enter their PIN. No initial PIN is
+shown to or selected by the Master. Existing administrators have no operational
+permissions until the Master grants them.
+Only the Master may add driver accounts through the management API. Managers
+with driver access can view and edit drivers but cannot create accounts.
+
+Completed trips and cancellation fees remain **payment pending** until a
+payment provider confirms settlement. Existing transactions previously marked
+completed need a one-time reconciliation against real payment records before
+their revenue can be trusted. No payment provider is configured yet.
 
 ### 4. Run the server
 ```bash
@@ -64,6 +80,12 @@ Base URL: `http://localhost:5000/api/v1`
 | POST | `/customer/login` | Customer login | Public |
 | POST | `/driver/login` | Driver login | Public |
 | POST | `/admin/login` | Admin login | Public |
+| GET | `/admin/me` | Current administrator and permissions | Admin |
+| PATCH | `/admin/profile` | Update own profile | Admin |
+| PATCH | `/admin/credential` | Change own password or four-digit PIN | Admin |
+| GET | `/admin/managers` | List administrators | Master |
+| POST | `/admin/managers` | Add administrator | Master |
+| PATCH | `/admin/managers/:id` | Update access or account details | Master |
 | POST | `/verify-otp` | Verify OTP | Public |
 | POST | `/forget-password` | Request reset OTP | Public |
 | POST | `/verify-reset-otp` | Verify reset OTP | Public |

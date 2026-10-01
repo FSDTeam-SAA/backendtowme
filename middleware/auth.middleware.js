@@ -23,6 +23,10 @@ export const protect = catchAsync(async (req, res, next) => {
     throw new AppError(httpStatus.UNAUTHORIZED, "User not found");
   }
 
+  if (user.role === "admin" && Number(decoded.authVersion || 0) !== Number(user.authVersion || 0)) {
+    throw new AppError(httpStatus.UNAUTHORIZED, "Administrator session expired");
+  }
+
   if (user.isBlocked) {
     throw new AppError(httpStatus.FORBIDDEN, "Your account has been blocked. Contact support.");
   }
@@ -34,6 +38,23 @@ export const protect = catchAsync(async (req, res, next) => {
 export const isAdmin = catchAsync(async (req, res, next) => {
   if (req.user?.role !== "admin") {
     throw new AppError(httpStatus.FORBIDDEN, "Access denied. Admin only.");
+  }
+  next();
+});
+
+export const isMasterAdmin = catchAsync(async (req, res, next) => {
+  if (req.user?.role !== "admin" || req.user?.isMasterAdmin !== true) {
+    throw new AppError(httpStatus.FORBIDDEN, "Master administrator access required");
+  }
+
+  next();
+});
+
+export const requireAdminPermission = (permission) => catchAsync(async (req, res, next) => {
+  if (req.user?.role !== "admin" ||
+      (!req.user.isMasterAdmin &&
+       (req.user.mustChangePin || !req.user.adminPermissions?.includes(permission)))) {
+    throw new AppError(httpStatus.FORBIDDEN, `Missing administrator permission: ${permission}`);
   }
   next();
 });

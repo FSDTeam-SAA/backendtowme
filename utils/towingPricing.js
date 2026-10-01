@@ -31,7 +31,8 @@ export const PRICING = Object.freeze({
 /**
  * Cancellation policy shown on the customer's cancellation-warning screen.
  * The fee only starts once a driver is committed to the job — a pending trip
- * nobody accepted costs nothing to drop.
+ * nobody accepted costs nothing to drop. Once the driver reaches the pickup,
+ * the full fare applies even if towing has not started yet.
  */
 export const CANCELLATION = Object.freeze({
   freeWindowMinutes: 1,
@@ -47,8 +48,8 @@ export const calculateCancellationFee = ({
   fullFare = 0,
   at = new Date(),
 } = {}) => {
-  if (startedAt) {
-    return { fee: Number(Number(fullFare).toFixed(2)), reason: "trip_started" };
+  if (arrivedAt || startedAt) {
+    return { fee: Number(Number(fullFare).toFixed(2)), reason: arrivedAt ? "driver_arrived" : "trip_started" };
   }
   if (!acceptedAt) {
     return { fee: 0, reason: "no_driver_assigned" };

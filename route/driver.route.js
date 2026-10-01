@@ -6,8 +6,9 @@ import {
   updateLocation, getMyTrips, getDriverFinancials, changeDriverPassword,
   registerFcmToken, removeFcmToken, setDriverApproval,
 } from "../controller/driver.controller.js";
-import { protect, isAdmin, isDriver } from "../middleware/auth.middleware.js";
+import { protect, isAdmin, isDriver, isMasterAdmin, requireAdminPermission } from "../middleware/auth.middleware.js";
 import upload from "../middleware/multer.middleware.js";
+import { adminCodeLimiter } from "../middleware/rateLimit.middleware.js";
 
 const router = express.Router();
 
@@ -35,7 +36,7 @@ router.get("/me/trips", protect, isDriver, getMyTrips);
 router.get("/me/financials", protect, isDriver, getDriverFinancials);
 
 // Admin routes
-router.post("/", protect, isAdmin,
+router.post("/", protect, isMasterAdmin,
   upload.fields([
     { name: "profileImage", maxCount: 1 },
     { name: "vehicleRegistration", maxCount: 1 },
@@ -45,9 +46,9 @@ router.post("/", protect, isAdmin,
   ]),
   createDriver
 );
-router.get("/", protect, isAdmin, getAllDrivers);
-router.get("/:id", protect, isAdmin, getDriverById);
-router.put("/:id", protect, isAdmin,
+router.get("/", protect, isAdmin, requireAdminPermission("drivers"), getAllDrivers);
+router.get("/:id", protect, isAdmin, requireAdminPermission("drivers"), getDriverById);
+router.put("/:id", protect, isAdmin, requireAdminPermission("drivers"),
   upload.fields([
     { name: "profileImage", maxCount: 1 },
     { name: "vehicleRegistration", maxCount: 1 },
@@ -57,8 +58,8 @@ router.put("/:id", protect, isAdmin,
   ]),
   updateDriver
 );
-router.patch("/:id/approval", protect, isAdmin, setDriverApproval);
-router.patch("/:id/toggle-block", protect, isAdmin, toggleDriverBlock);
-router.delete("/:id", protect, isAdmin, deleteDriver);
+router.patch("/:id/approval", protect, isAdmin, requireAdminPermission("drivers"), setDriverApproval);
+router.patch("/:id/toggle-block", protect, isAdmin, requireAdminPermission("drivers"), adminCodeLimiter, toggleDriverBlock);
+router.delete("/:id", protect, isAdmin, requireAdminPermission("drivers"), deleteDriver);
 
 export default router;

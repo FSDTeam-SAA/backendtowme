@@ -1,11 +1,13 @@
 import User from "../model/user.model.js";
-import Driver from "../model/driver.model.js";
+import Driver, { REQUIRED_DRIVER_DOCUMENT_QUERY } from "../model/driver.model.js";
 import Trip from "../model/trip.model.js";
 import Transaction from "../model/transaction.model.js";
 import AppError from "../errors/AppError.js";
 import catchAsync from "../utils/catchAsync.js";
 import httpStatus from "http-status";
 import sendResponse from "../utils/sendResponse.js";
+import { emitToAdmins, EVENTS } from "../utils/realtime.js";
+import { settledDriverEarnings } from "../utils/settledDriverEarnings.js";
 
 // ============ ADMIN: DASHBOARD OVERVIEW ============
 
@@ -14,7 +16,12 @@ export const getDashboardStats = catchAsync(async (req, res) => {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 1);
+  const weekStarts = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(todayStart);
+    day.setDate(day.getDate() - (6 - index));
+    return day;
+  });
 
   const [
     totalDrivers,
@@ -23,91 +30,84 @@ export const getDashboardStats = catchAsync(async (req, res) => {
     todayTrips,
     totalTrips,
     completedTrips,
+    todayRevenueRaw,
+    thisMonthRevenueRaw,
+    lastMonthRevenueRaw,
+    avgRatingRaw,
+    weekRevenueRaw,
+    tripTypeRaw,
+    recentTrips,
+    topDrivers,
   ] = await Promise.all([
     Driver.countDocuments(),
-    Driver.countDocuments({ availabilityStatus: "available" }),
+    Driver.countDocuments({ availabilityStatus: "available", isVerified: true,
+      isBlocked: { $ne: true }, accountStatus: { $ne: false },
+      ...REQUIRED_DRIVER_DOCUMENT_QUERY }),
     User.countDocuments({ role: "customer" }),
     Trip.countDocuments({ createdAt: { $gte: todayStart } }),
     Trip.countDocuments(),
     Trip.countDocuments({ status: "completed" }),
+    Transaction.aggregate([
+      { $match: { createdAt: { $gte: todayStart }, status: "completed" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]),
+    Transaction.aggregate([
+      { $match: { createdAt: { $gte: thisMonthStart }, status: "completed" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]),
+    Transaction.aggregate([
+      { $match: { createdAt: { $gte: lastMonthStart, $lt: lastMonthEnd }, status: "completed" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]),
+    Driver.aggregate([
+      { $match: { totalRatings: { $gt: 0 } } },
+      { $group: { _id: null, avgRating: { $avg: "$rating" } } },
+    ]),
+    Transaction.aggregate([
+      { $match: { createdAt: { $gte: weekStarts[0] }, status: "completed" } },
+      { $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } }, revenue: { $sum: "$amount" } } },
+    ]),
+    Trip.aggregate([
+      { $match: { status: "completed" } },
+      { $group: { _id: "$tripType", count: { $sum: 1 } } },
+    ]),
+    Trip.find()
+      .populate("customerId", "name phoneNumber profileImage")
+      .populate("driverId", "firstName lastName")
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean(),
+    Driver.find({ totalTrips: { $gt: 0 } })
+      .sort({ totalTrips: -1 })
+      .limit(3)
+      .select("firstName lastName totalTrips totalEarnings rating profileImage")
+      .lean(),
   ]);
 
-  // Today's revenue
-  const todayRevenueRaw = await Transaction.aggregate([
-    { $match: { createdAt: { $gte: todayStart }, status: "completed" } },
-    { $group: { _id: null, total: { $sum: "$commissionAmount" } } },
-  ]);
-
-  // This month's revenue
-  const thisMonthRevenueRaw = await Transaction.aggregate([
-    { $match: { createdAt: { $gte: thisMonthStart }, status: "completed" } },
-    { $group: { _id: null, total: { $sum: "$commissionAmount" } } },
-  ]);
-
-  // Last month's revenue
-  const lastMonthRevenueRaw = await Transaction.aggregate([
-    { $match: { createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd }, status: "completed" } },
-    { $group: { _id: null, total: { $sum: "$commissionAmount" } } },
-  ]);
+  const topDriverEarnings = await settledDriverEarnings(topDrivers.map((driver) => driver._id));
+  const settledTopDrivers = topDrivers.map((driver) => ({
+    ...driver, totalEarnings: topDriverEarnings.get(String(driver._id)) || 0,
+  }));
 
   const thisMonthRevenue = thisMonthRevenueRaw[0]?.total || 0;
   const lastMonthRevenue = lastMonthRevenueRaw[0]?.total || 0;
   const revenueChange = lastMonthRevenue === 0
-    ? 100
+    ? (thisMonthRevenue > 0 ? 100 : 0)
     : Math.round(((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 * 10) / 10;
 
-  // Average rating
-  const avgRatingRaw = await Driver.aggregate([
-    { $match: { totalRatings: { $gt: 0 } } },
-    { $group: { _id: null, avgRating: { $avg: "$rating" } } },
-  ]);
   const avgRating = Math.round((avgRatingRaw[0]?.avgRating || 0) * 10) / 10;
 
-  // Weekly revenue trend (last 7 days)
-  const weeklyRevenueTrend = [];
-  for (let i = 6; i >= 0; i--) {
-    const dayStart = new Date(now);
-    dayStart.setDate(dayStart.getDate() - i);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setHours(23, 59, 59, 999);
-
-    const rev = await Transaction.aggregate([
-      { $match: { createdAt: { $gte: dayStart, $lte: dayEnd }, status: "completed" } },
-      { $group: { _id: null, total: { $sum: "$commissionAmount" } } },
-    ]);
-
-    weeklyRevenueTrend.push({
-      date: dayStart.toISOString().split("T")[0],
-      revenue: rev[0]?.total || 0,
-    });
-  }
-
-  // Trip type distribution
-  const tripTypeRaw = await Trip.aggregate([
-    { $match: { status: "completed" } },
-    { $group: { _id: "$tripType", count: { $sum: 1 } } },
-  ]);
+  const revenueByDay = new Map(weekRevenueRaw.map((row) => [row._id, row.revenue]));
+  const weeklyRevenueTrend = weekStarts.map((day) => {
+    const date = day.toISOString().split("T")[0];
+    return { date, revenue: revenueByDay.get(date) || 0 };
+  });
 
   const tripTypeDistribution = tripTypeRaw.map((item) => ({
     type: item._id,
     count: item.count,
     percent: completedTrips > 0 ? Math.round((item.count / completedTrips) * 100) : 0,
   }));
-
-  // Recent trips
-  const recentTrips = await Trip.find()
-    .populate("customerId", "name phoneNumber profileImage")
-    .populate("driverId", "firstName lastName")
-    .sort({ createdAt: -1 })
-    .limit(5);
-
-  // Top drivers
-  const topDrivers = await Driver.find({ totalTrips: { $gt: 0 } })
-    .populate("userId", "name profileImage")
-    .sort({ totalTrips: -1, totalEarnings: -1 })
-    .limit(3)
-    .select("firstName lastName totalTrips totalEarnings rating profileImage");
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -129,7 +129,7 @@ export const getDashboardStats = catchAsync(async (req, res) => {
       weeklyRevenueTrend,
       tripTypeDistribution,
       recentTrips,
-      topDrivers,
+      topDrivers: settledTopDrivers,
     },
   });
 });
@@ -213,6 +213,11 @@ export const getFinancialAnalytics = catchAsync(async (req, res) => {
     },
   ]);
 
+  const pendingSummary = await Transaction.aggregate([
+    { $match: { ...matchQuery, status: "pending" } },
+    { $group: { _id: null, amount: { $sum: "$amount" }, count: { $sum: 1 } } },
+  ]);
+
   // Daily revenue trend
   const dailyRevenueTrend = await Transaction.aggregate([
     { $match: matchQuery },
@@ -258,6 +263,7 @@ export const getFinancialAnalytics = catchAsync(async (req, res) => {
     message: "Financial analytics fetched",
     data: {
       summary: revenueSummary[0] || { totalRevenue: 0, totalCommission: 0, totalDriverEarnings: 0, totalTransactions: 0 },
+      pendingSummary: pendingSummary[0] || { amount: 0, count: 0 },
       dailyRevenueTrend,
       driverCommissions,
       recentTransactions,
@@ -279,6 +285,7 @@ export const markDriverPayment = catchAsync(async (req, res) => {
   driver.paymentStatus = status;
   driver.lastPaymentDate = new Date();
   await driver.save();
+  emitToAdmins(EVENTS.DRIVER_UPDATED, driver);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

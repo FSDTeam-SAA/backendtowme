@@ -502,7 +502,22 @@ export const resetPassword = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.BAD_REQUEST, "Invalid or expired OTP");
   }
 
+  if (user.role === "admin" && !user.isMasterAdmin && !/^\d{4}$/.test(password)) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Manager PIN must be exactly four digits");
+  }
+  if ((user.role !== "admin" || user.isMasterAdmin) && password.length < 6) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Password must be at least six characters");
+  }
+
   user.password = password;
+  if (user.role === "admin") {
+    user.authVersion = (user.authVersion || 0) + 1;
+    user.refreshToken = null;
+    if (!user.isMasterAdmin) {
+      user.pinSetupPending = false;
+      user.mustChangePin = false;
+    }
+  }
   user.clearResetPasswordOTP();
   await user.save();
 
@@ -520,7 +535,10 @@ export const logout = catchAsync(async (req, res) => {
     throw new AppError(httpStatus.UNAUTHORIZED, "Unauthorized");
   }
 
-  await User.findByIdAndUpdate(userId, { refreshToken: "" });
+  await User.findByIdAndUpdate(userId, {
+    $set: { refreshToken: "" },
+    ...(req.user.role === "admin" ? { $inc: { authVersion: 1 } } : {}),
+  });
   res.clearCookie("refreshToken");
 
   sendResponse(res, {
@@ -547,12 +565,14 @@ export const refreshToken = catchAsync(async (req, res) => {
   }
 
   const user = await User.findById(decoded._id);
-  if (!user || user.refreshToken !== token) {
+  if (!user || user.isBlocked || user.refreshToken !== token ||
+      (user.role === "admin" && Number(decoded.authVersion || 0) !== Number(user.authVersion || 0))) {
     throw new AppError(httpStatus.UNAUTHORIZED, "Invalid refresh token");
   }
 
-  const payload = { _id: user._id, phoneNumber: user.phoneNumber, role: user.role };
-  const newAccessToken = createToken(payload, process.env.JWT_ACCESS_SECRET, "7d");
+  const payload = { _id: user._id, phoneNumber: user.phoneNumber, role: user.role,
+    ...(user.role === "admin" ? { authVersion: user.authVersion || 0 } : {}) };
+  const newAccessToken = createToken(payload, process.env.JWT_ACCESS_SECRET, user.role === "admin" ? "1d" : "7d");
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -565,24 +585,28 @@ export const refreshToken = catchAsync(async (req, res) => {
 // ============= ADMIN AUTH =============
 
 export const adminLogin = catchAsync(async (req, res) => {
-  const { email, password } = req.body;
+  const identifier = String(req.body.username || req.body.email || "").trim().toLowerCase();
+  const { password } = req.body;
 
-  if (!email || !password) {
-    throw new AppError(httpStatus.BAD_REQUEST, "Email and password are required");
+  if (!identifier || !password) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Administrator name or email and password are required");
   }
 
-  const user = await User.findOne({ email: email.toLowerCase().trim(), role: "admin" }).select("+password");
+  const user = await User.findOne({
+    role: "admin", $or: [{ adminUsername: identifier }, { email: identifier }],
+  }).select("+password");
 
-  if (!user) {
-    throw new AppError(httpStatus.NOT_FOUND, "Admin not found");
+  if (!user || user.isBlocked) throw new AppError(httpStatus.UNAUTHORIZED, "Invalid administrator credentials");
+  if (user.pinSetupPending) {
+    throw new AppError(httpStatus.FORBIDDEN, "Set your four-digit PIN using your registered phone first");
   }
 
   const match = await user.comparePassword(password);
   if (!match) {
-    throw new AppError(httpStatus.UNAUTHORIZED, "Incorrect password");
+    throw new AppError(httpStatus.UNAUTHORIZED, "Invalid administrator credentials");
   }
 
-  const payload = { _id: user._id, email: user.email, role: user.role };
+  const payload = { _id: user._id, email: user.email, role: user.role, authVersion: user.authVersion || 0 };
   const accessToken = createToken(payload, process.env.JWT_ACCESS_SECRET, "1d");
   const refreshToken = createToken(payload, process.env.JWT_REFRESH_SECRET, "7d");
 
@@ -597,10 +621,83 @@ export const adminLogin = catchAsync(async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      phoneNumber: user.phoneNumber,
       role: user.role,
+      adminUsername: user.adminUsername,
+      isMasterAdmin: user.isMasterAdmin === true,
+      adminPermissions: user.adminPermissions || [],
+      mustChangePin: user.mustChangePin === true,
       profileImage: user.profileImage,
       accessToken,
       refreshToken,
     },
   });
+});
+
+export const updateAdminProfile = catchAsync(async (req, res) => {
+  const name = String(req.body.name || "").trim();
+  const email = String(req.body.email || "").trim().toLowerCase();
+  const phoneNumber = normalizePhoneNumber(req.body.phoneNumber);
+
+  if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^\+972\d{9}$/.test(phoneNumber)) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Valid name, email and Israeli phone number are required");
+  }
+
+  const [emailOwner, phoneOwner, nameOwner] = await Promise.all([
+    User.findOne({ email, _id: { $ne: req.user._id } }),
+    findUserByPhone(User, phoneNumber, { _id: { $ne: req.user._id } }),
+    req.user.adminUsername
+      ? User.findOne({ adminUsername: name.toLowerCase(), _id: { $ne: req.user._id } })
+      : Promise.resolve(null),
+  ]);
+  if (emailOwner || phoneOwner || nameOwner) {
+    throw new AppError(httpStatus.CONFLICT, "Name, email or phone number is already in use");
+  }
+
+  req.user.name = name;
+  if (req.user.adminUsername) req.user.adminUsername = name.toLowerCase();
+  req.user.email = email;
+  req.user.phoneNumber = phoneNumber;
+  await req.user.save();
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Admin profile updated",
+    data: { name, email, phoneNumber },
+  });
+});
+
+export const changeAdminCredential = catchAsync(async (req, res) => {
+  const currentPassword = String(req.body.currentPassword || "");
+  const newPassword = String(req.body.newPassword || "");
+  const admin = await User.findById(req.user._id).select("+password");
+  if (!currentPassword || !(await admin.comparePassword(currentPassword))) {
+    throw new AppError(httpStatus.FORBIDDEN, "Current administrator code is incorrect");
+  }
+  if (admin.isMasterAdmin ? newPassword.length < 6 : !/^\d{4}$/.test(newPassword)) {
+    throw new AppError(httpStatus.BAD_REQUEST, admin.isMasterAdmin
+      ? "Master password needs at least six characters" : "Manager PIN must be four digits");
+  }
+  if (newPassword === currentPassword) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Choose a new code or password");
+  }
+  admin.password = newPassword;
+  admin.authVersion = (admin.authVersion || 0) + 1;
+  admin.mustChangePin = false;
+  admin.refreshToken = null;
+  await admin.save();
+  sendResponse(res, { statusCode: httpStatus.OK, success: true,
+    message: "Administrator credential changed" });
+});
+
+export const getCurrentAdmin = catchAsync(async (req, res) => {
+  const { _id, name, email, phoneNumber, adminUsername, isMasterAdmin, adminPermissions, mustChangePin } = req.user;
+  sendResponse(res, { statusCode: httpStatus.OK, success: true,
+    message: "Administrator fetched", data: {
+      _id, name, email, phoneNumber, adminUsername,
+      role: "admin", isMasterAdmin: isMasterAdmin === true,
+      adminPermissions: adminPermissions || [],
+      mustChangePin: mustChangePin === true,
+    } });
 });

@@ -1,5 +1,6 @@
 import User from "../model/user.model.js";
 import Trip from "../model/trip.model.js";
+import Transaction from "../model/transaction.model.js";
 import AppError from "../errors/AppError.js";
 import catchAsync from "../utils/catchAsync.js";
 import httpStatus from "http-status";
@@ -134,9 +135,9 @@ export const getAllCustomers = catchAsync(async (req, res) => {
     users.map(async (u) => {
       const [totalTrips, totalPaid] = await Promise.all([
         Trip.countDocuments({ customerId: u._id }),
-        Trip.aggregate([
-          { $match: { customerId: u._id, status: "completed" } },
-          { $group: { _id: null, total: { $sum: "$price" } } },
+        Transaction.aggregate([
+          { $match: { customerId: u._id, status: "completed", type: { $in: ["trip_payment", "cancellation_fee"] } } },
+          { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
       ]);
       const lastTrip = await Trip.findOne({ customerId: u._id }).sort({ createdAt: -1 }).lean();
@@ -180,11 +181,10 @@ export const getCustomerById = catchAsync(async (req, res) => {
   const [trips, totalPaid] = await Promise.all([
     Trip.find({ customerId: id })
       .populate("driverId", "firstName lastName vehicleType")
-      .sort({ createdAt: -1 })
-      .limit(20),
-    Trip.aggregate([
-      { $match: { customerId: user._id, status: "completed" } },
-      { $group: { _id: null, total: { $sum: "$price" } } },
+      .sort({ createdAt: -1 }),
+    Transaction.aggregate([
+      { $match: { customerId: user._id, status: "completed", type: { $in: ["trip_payment", "cancellation_fee"] } } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
     ]),
   ]);
 
