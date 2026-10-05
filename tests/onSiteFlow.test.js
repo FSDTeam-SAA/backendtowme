@@ -5,6 +5,8 @@ import Trip from "../model/trip.model.js";
 import Driver from "../model/driver.model.js";
 import User from "../model/user.model.js";
 import Notification from "../model/notification.model.js";
+import Terms from "../model/terms.model.js";
+import { defaultTerms } from "../content/defaultTerms.js";
 import { createTrip, estimateTrip } from "../controller/trip.controller.js";
 
 const startApp = async () => {
@@ -39,7 +41,8 @@ test("on-site estimate needs only the pickup location", async () => {
 
 test("on-site website booking stores the pickup as its destination", async () => {
   const original = { createTrip: Trip.create, createNotification: Notification.create,
-    findDriver: Driver.find, findUser: User.find };
+    findDriver: Driver.find, findUser: User.find, findTerms: Terms.findOne };
+  Terms.findOne = () => ({ sort: () => ({ lean: async () => null }) });
   let created;
   Trip.create = async (data) => {
     created = data;
@@ -55,13 +58,15 @@ test("on-site website booking stores the pickup as its destination", async () =>
       body: JSON.stringify({ tripType: "on_site", pickupAddress: "Tel Aviv",
         pickupLat: 32.0853, pickupLng: 34.7818, vehicleInfo: { type: "car" },
         contactName: "Customer", contactPhone: "+972501234567",
-        bookingSource: "website", termsAccepted: true }),
+        bookingSource: "website", termsAccepted: true, termsVersion: defaultTerms.version }),
     });
     assert.equal(response.status, 201);
     assert.equal(created.tripType, "on_site");
     assert.equal(created.dropoffLocation.address, created.pickupLocation.address);
     assert.deepEqual(created.dropoffLocation.coordinates.coordinates, created.pickupLocation.coordinates.coordinates);
     assert.equal(created.estimatedDistance, 0);
+    assert.equal(created.termsVersion, defaultTerms.version);
+    assert.ok(created.termsAcceptedAt instanceof Date);
     await new Promise((resolve) => setImmediate(resolve));
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -69,5 +74,6 @@ test("on-site website booking stores the pickup as its destination", async () =>
     Notification.create = original.createNotification;
     Driver.find = original.findDriver;
     User.find = original.findUser;
+    Terms.findOne = original.findTerms;
   }
 });

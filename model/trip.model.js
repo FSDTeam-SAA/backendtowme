@@ -60,6 +60,7 @@ const tripSchema = new Schema(
     },
     bookingSource: { type: String, enum: ["app", "website"], default: "app" },
     termsAcceptedAt: { type: Date },
+    termsVersion: { type: String },
     destinationHistory: [{
       address: String,
       coordinates: { type: [Number], default: undefined },

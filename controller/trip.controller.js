@@ -266,12 +266,14 @@ export const getTripDriverLocation = catchAsync(async (req, res) => {
 
 // ============ CUSTOMER: CREATE TRIP REQUEST ============
 
+import { validateTermsAcceptance } from "../utils/terms.js";
+
 export const createTrip = catchAsync(async (req, res) => {
   const {
     tripType, pickupAddress, pickupLat, pickupLng,
     dropoffAddress, dropoffLat, dropoffLng,
     vehicleInfo, price, paymentMethod, notes,
-    contactName, contactPhone, smsUpdates, bookingSource, termsAccepted,
+    contactName, contactPhone, smsUpdates, bookingSource, termsAccepted, termsVersion,
     estimatedDistance, estimatedDuration,
     includeRescue, isRescue,
   } = req.body;
@@ -288,9 +290,7 @@ export const createTrip = catchAsync(async (req, res) => {
   if (!resolvedContactName || !/^\+?\d{9,15}$/.test(resolvedContactPhone.replace(/[\s()-]/g, ""))) {
     throw new AppError(httpStatus.BAD_REQUEST, "Customer name and a valid mobile phone are required");
   }
-  if (bookingSource === "website" && termsAccepted !== true) {
-    throw new AppError(httpStatus.BAD_REQUEST, "Terms of Use must be accepted");
-  }
+  const acceptedTerms = await validateTermsAcceptance(termsAccepted, termsVersion);
 
   const rescueRequested =
     includeRescue === true ||
@@ -373,7 +373,8 @@ export const createTrip = catchAsync(async (req, res) => {
       smsUpdates: smsUpdates !== false,
     },
     bookingSource: bookingSource === "website" ? "website" : "app",
-    termsAcceptedAt: termsAccepted === true ? new Date() : undefined,
+    termsAcceptedAt: new Date(),
+    termsVersion: acceptedTerms.version,
     price: safePrice,
     estimatedDistance: distanceKm,
     estimatedDuration: durationMinutes,

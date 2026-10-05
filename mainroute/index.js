@@ -10,7 +10,10 @@ import notificationRoute from "../route/notification.route.js";
 import vehicleRoute from "../route/vehicle.route.js";
 import locationRoute from "../route/location.route.js";
 
+import termsRoute from "../route/terms.route.js";
+
 const router = express.Router();
+router.use("/terms", termsRoute);
 
 router.use("/auth", authRoute);
 router.use("/drivers", driverRoute);
