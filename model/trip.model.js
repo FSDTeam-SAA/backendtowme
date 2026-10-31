@@ -83,6 +83,8 @@ const tripSchema = new Schema(
       shabbatSurcharge: { type: Number, default: 0 },
       holidaySurcharge: { type: Number, default: 0 },
       rescueFee: { type: Number, default: 0 },
+      dollyFee: { type: Number, default: 0 },
+      includeDolly: { type: Boolean, default: false },
       towingFee: { type: Number, default: 0 },
       serviceFee: { type: Number, default: 0 },
       taxableSubtotal: { type: Number, default: 0 },

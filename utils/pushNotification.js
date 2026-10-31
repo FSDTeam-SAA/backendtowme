@@ -80,9 +80,9 @@ export async function sendNewTripPush({
     android: {
       priority: "high",
       notification: {
-        channelId: "new_tow_calls",
-        sound: soundEnabled ? "default" : undefined,
-        defaultSound: soundEnabled,
+        channelId: soundEnabled ? "new_tow_calls_v2" : "new_tow_calls_silent_v2",
+        sound: soundEnabled ? "tow_request" : undefined,
+        defaultSound: false,
         priority: "high",
         visibility: "public",
         notificationCount: 1,
@@ -100,7 +100,7 @@ export async function sendNewTripPush({
             title: title || "קריאה חדשה",
             body: body || "התקבלה קריאת גרירה חדשה",
           },
-          sound: soundEnabled ? "default" : undefined,
+          sound: soundEnabled ? "tow_request.wav" : undefined,
           badge: 1,
           "content-available": 1,
           "mutable-content": 1,
