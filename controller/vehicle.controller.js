@@ -2,7 +2,7 @@ import catchAsync from "../utils/catchAsync.js";
 import sendResponse from "../utils/sendResponse.js";
 import AppError from "../errors/AppError.js";
 import httpStatus from "http-status";
-import { isAllowedBrand, canonicalBrandName } from "../utils/israeliVehicleBrands.js";
+import { isAllowedBrand, canonicalBrandName, HEBREW_VEHICLE_BRANDS } from "../utils/israeliVehicleBrands.js";
 
 const DATASTORE_URL = "https://data.gov.il/api/3/action/datastore_search";
 
@@ -57,8 +57,8 @@ function normalizeText(raw) {
 }
 
 /**
- * Build manufacturer list ONLY from the WLTP models dataset so every brand
- * has at least one model row (fixes empty Model after Brand select).
+ * Resolve model codes from WLTP for the client-approved manufacturer list.
+ * Brands without registry rows remain selectable with manual model entry.
  */
 async function loadManufacturers() {
   const now = Date.now();
@@ -106,13 +106,12 @@ async function loadManufacturers() {
     if (offset >= total || records.length < pageSize) break;
   }
 
-  const list = Array.from(byName.values())
-    .map((m) => {
-      m.codes.sort((a, b) => a - b);
-      m.id = m.codes[0];
-      return m;
-    })
-    .sort((a, b) => a.name.localeCompare(b.name, "he"));
+  // Preserve every PDF entry, including brands without WLTP model rows.
+  const list = HEBREW_VEHICLE_BRANDS.map(([name, canonical], index) => {
+    const record = byName.get(canonical.toLowerCase());
+    const codes = record ? record.codes.sort((a, b) => a - b) : [];
+    return { id: codes[0] ?? -(index + 1), name, canonical, codes };
+  });
 
   manufacturersCache = list;
   manufacturersCachedAt = now;
@@ -188,14 +187,14 @@ export const getManufacturers = catchAsync(async (req, res) => {
   const q = String(req.query.q || "").trim().toLowerCase();
   const manufacturers = await loadManufacturers();
   const filtered = q
-    ? manufacturers.filter((m) => m.name.toLowerCase().includes(q))
+    ? manufacturers.filter((m) => (m.name + " " + m.canonical).toLowerCase().includes(q))
     : manufacturers;
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: "Manufacturers fetched",
-    data: filtered.map(({ id, name, codes }) => ({ id, name, codes })),
+    data: filtered.map(({ id, name, canonical, codes }) => ({ id, name, canonical, codes })),
   });
 });
 
@@ -214,7 +213,7 @@ export const getModels = catchAsync(async (req, res) => {
     ? manufacturer.codes
     : [Number(manufacturerId)];
 
-  const models = await loadModelsForCodes(codes);
+  const models = Number(manufacturerId) < 0 ? [] : await loadModelsForCodes(codes);
   const q = String(req.query.q || "").trim().toLowerCase();
   const filtered = q
     ? models.filter((m) => m.name.toLowerCase().includes(q))
