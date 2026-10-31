@@ -56,6 +56,22 @@ const motorcycle = calculateTowingFare(10, {
 assertEq("motorcycle rescue", motorcycle.rescueFee, 200);
 assertEq("motorcycle total", motorcycle.total, 501.5);
 
+for (const vehicleType of ['car', 'motorcycle', 'truck', 'work_equipment']) {
+  const dolly = calculateTowingFare(5, {
+    vehicleType, weightBand: '2.6-5', includeDolly: true, includeRescue: true,
+    forceNight: false, forceShabbat: false, forceHoliday: false,
+  });
+  assertEq(`${vehicleType} Dolly surcharge`, dolly.dollyFee, 600);
+  assertEq(`${vehicleType} Dolly excludes standard recovery`, dolly.rescueFee, 0);
+  assertEq(`${vehicleType} Dolly subtotal`, dolly.taxableSubtotal, dolly.basePrice + 600 + 25);
+}
+const dollyCar = calculateTowingFare(5, {
+  vehicleType: 'car', includeDolly: true,
+  forceNight: false, forceShabbat: false, forceHoliday: false,
+});
+assertEq('Dolly car VAT', dollyCar.vat, 166.5);
+assertEq('Dolly car total', dollyCar.total, 1091.5);
+
 const surcharges = calculateTowingFare(5, {
   vehicleType: "car", forceNight: true, forceShabbat: true, forceHoliday: false,
 });

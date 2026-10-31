@@ -3,21 +3,92 @@
  *
  * The Ministry of Transport WLTP dataset carries the full historical registry,
  * including brands never sold here. Only brands listed below are exposed to the
- * apps. Replace this array wholesale when the client supplies their own list;
- * an empty array disables filtering and falls back to the raw registry.
+ * apps. Hebrew display names/order follow the client's cars (2).pdf list.
+ * Canonical English aliases are retained for government registry matching.
  */
-export const ISRAELI_VEHICLE_BRANDS = [
-  "Alfa Romeo", "Aston Martin", "Audi", "BMW", "BYD", "Bentley", "Cadillac",
-  "Chery", "Chevrolet", "Chrysler", "Citroen", "Cupra", "DS", "Dacia",
-  "Daihatsu", "Dodge", "Ferrari", "Fiat", "Ford", "GMC", "Geely",
-  "Great Wall", "Honda", "Hyundai", "Infiniti", "Isuzu", "Iveco", "Jaguar",
-  "Jeep", "Kia", "Lamborghini", "Land Rover", "Lexus", "Lynk & Co", "MAN",
-  "MG", "Maserati", "Mazda", "Mercedes-Benz", "Mini", "Mitsubishi", "Nissan",
-  "Opel", "Peugeot", "Porsche", "Renault", "Rolls-Royce", "Saab", "Scania",
-  "Seat", "Skoda", "Skywell", "Smart", "SsangYong", "Subaru", "Suzuki",
-  "Tesla", "Toyota", "Volkswagen", "Volvo", "Haval", "Ora", "Voyah", "Xpeng",
-  "Nio", "Zeekr", "Omoda", "Jaecoo", "Forthing", "Maxus", "Seres", "Aiways",
+// Client-approved PDF order and spellings; also used by the customer website.
+export const HEBREW_VEHICLE_BRANDS = [
+  ["IM","IM"],
+  ["אאודי","Audi"],
+  ["אבארט","Abarth"],
+  ["אוואטר","Avatr"],
+  ["אומודה","Omoda"],
+  ["אופל","Opel"],
+  ["אורה","Ora"],
+  ["איביזי","EVEASY"],
+  ["איוויס","Aiways"],
+  ["איווקו","Iveco"],
+  ["איוון","Aion"],
+  ["אינפיניטי","Infiniti"],
+  ["איסוזו","Isuzu"],
+  ["אלפא רומאו","Alfa Romeo"],
+  ["אלפיין","Alpine"],
+  ["אם ג'י","MG"],
+  ["אסטון מרטין","Aston Martin"],
+  ["אקספנג","Xpeng"],
+  ["ב.מ.וו","BMW"],
+  ["בי.ווי.די","BYD"],
+  ["בנטלי","Bentley"],
+  ["ג'אק","JAC"],
+  ["ג'ילי","Geely"],
+  ["ג'יפ","Jeep"],
+  ["ג'נסיס","Genesis"],
+  ["דאיון","Dayun"],
+  ["דאצ'יה","Dacia"],
+  ["דודג'","Dodge"],
+  ["דונגפנג","Dongfeng"],
+  ["די אס","DS"],
+  ["דיפאל","Deepal"],
+  ["הונגצ'י","Hongqi"],
+  ["הונדה","Honda"],
+  ["וואי","Wey"],
+  ["וויה","Voyah"],
+  ["וולוו","Volvo"],
+  ["זיקר","Zeekr"],
+  ["טויוטה","Toyota"],
+  ["טסלה","Tesla"],
+  ["יגואר","Jaguar"],
+  ["יונדאי","Hyundai"],
+  ["לינק אנד קו","Lynk & Co"],
+  ["ליפמוטור","Leapmotor"],
+  ["לנד רובר","Land Rover"],
+  ["לקסוס","Lexus"],
+  ["מאזדה","Mazda"],
+  ["מזארטי","Maserati"],
+  ["מיני","Mini"],
+  ["מיצובישי","Mitsubishi"],
+  ["מקסוס","Maxus"],
+  ["מרצדס - בנץ","Mercedes-Benz"],
+  ["ניאו","Nio"],
+  ["ניסאן","Nissan"],
+  ["סאנגיונג","SsangYong"],
+  ["סובארו","Subaru"],
+  ["סוזוקי","Suzuki"],
+  ["סיאט","Seat"],
+  ["סיטרואן","Citroen"],
+  ["סמארט","Smart"],
+  ["סקודה","Skoda"],
+  ["סקייוול","Skywell"],
+  ["סרס","Seres"],
+  ["פולסטאר","Polestar"],
+  ["פולקסווגן","Volkswagen"],
+  ["פורד","Ford"],
+  ["פורשה","Porsche"],
+  ["פורתינג","Forthing"],
+  ["פיאט","Fiat"],
+  ["פיג'ו","Peugeot"],
+  ["צ'רי","Chery"],
+  ["קאדילק","Cadillac"],
+  ["קופרה","Cupra"],
+  ["קיה","Kia"],
+  ["ראם","Ram"],
+  ["רנו","Renault"],
+  ["שברולט","Chevrolet"],
+  ["אחר","Other"],
 ];
+
+export const ISRAELI_VEHICLE_BRANDS = HEBREW_VEHICLE_BRANDS
+  .filter(([, canonical]) => canonical !== "Other").map(([, canonical]) => canonical);
 
 /** Hebrew registry spellings mapped onto the canonical brand above. */
 const BRAND_ALIASES = new Map(
@@ -32,6 +103,10 @@ const BRAND_ALIASES = new Map(
     "אאודי": "Audi", "וולוו": "Volvo", "סובארו": "Subaru", "לקסוס": "Lexus",
     "מיני": "Mini", "פורשה": "Porsche", "טסלה": "Tesla", "שרי": "Chery",
     "ג'ילי": "Geely", "אם ג'י": "MG", "ביואיד": "BYD", "האוול": "Haval",
+    // Retain registry/previous-app spellings while displaying the PDF labels.
+    "אווטאר": "Avatr", "איווייז": "Aiways", "איון": "Aion",
+    "אלפין": "Alpine", "בי.וי.די": "BYD", "מזראטי": "Maserati",
+    "פורטינג": "Forthing",
   }),
 );
 
@@ -39,6 +114,10 @@ const canonicalKey = (value) =>
   String(value || "")
     .toLowerCase()
     .replace(/[^a-z0-9֐-׿]/g, "");
+
+for (const [hebrew, canonical] of HEBREW_VEHICLE_BRANDS) {
+  BRAND_ALIASES.set(hebrew, canonical);
+}
 
 const ALLOWED_KEYS = new Set(ISRAELI_VEHICLE_BRANDS.map(canonicalKey));
 for (const alias of BRAND_ALIASES.keys()) {

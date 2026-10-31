@@ -118,6 +118,7 @@ export const estimateTrip = catchAsync(async (req, res) => {
     dropoffLat,
     dropoffLng,
     includeRescue,
+    includeDolly,
     isRescue,
     tripType,
     vehicleType,
@@ -156,7 +157,8 @@ export const estimateTrip = catchAsync(async (req, res) => {
 
   const pricingVehicle = resolvePricingVehicle({ vehicleType, weightBand, vehicleWeight });
   const fare = calculateTowingFare(distanceKm, {
-    includeRescue: rescueRequested,
+    includeRescue: includeDolly === true ? false : !!rescueRequested,
+    includeDolly: includeDolly === true,
     ...pricingVehicle,
   });
   const durationMinutes =
@@ -185,6 +187,7 @@ export const estimateTrip = catchAsync(async (req, res) => {
       shabbatSurcharge: fare.shabbatSurcharge,
       holidaySurcharge: fare.holidaySurcharge,
       rescueFee: fare.rescueFee,
+      dollyFee: fare.dollyFee,
       towingFee: fare.towingFee,
       serviceFee: fare.serviceFee,
       taxableSubtotal: fare.taxableSubtotal,
@@ -194,7 +197,8 @@ export const estimateTrip = catchAsync(async (req, res) => {
       isNight: fare.isNight,
       isShabbat: fare.isShabbat,
       isHoliday: fare.isHoliday,
-      includeRescue: rescueRequested,
+      includeRescue: includeDolly === true ? false : !!rescueRequested,
+      includeDolly: includeDolly === true,
       currency: "ILS",
     },
   });
@@ -275,7 +279,7 @@ export const createTrip = catchAsync(async (req, res) => {
     vehicleInfo, price, paymentMethod, notes,
     contactName, contactPhone, smsUpdates, bookingSource, termsAccepted, termsVersion,
     estimatedDistance, estimatedDuration,
-    includeRescue, isRescue,
+    includeRescue, isRescue, includeDolly,
   } = req.body;
   const onSite = tripType === "on_site";
   const destinationAddress = onSite ? pickupAddress : dropoffAddress;
@@ -330,7 +334,8 @@ export const createTrip = catchAsync(async (req, res) => {
     vehicleWeight: vehicleInfo?.weight,
   });
   const fare = calculateTowingFare(distanceKm, {
-    includeRescue: rescueRequested,
+    includeRescue: includeDolly === true ? false : !!rescueRequested,
+    includeDolly: includeDolly === true,
     ...pricingVehicle,
   });
   const durationMinutes =
@@ -388,13 +393,15 @@ export const createTrip = catchAsync(async (req, res) => {
       shabbatSurcharge: fare.shabbatSurcharge,
       holidaySurcharge: fare.holidaySurcharge,
       rescueFee: fare.rescueFee,
+      dollyFee: fare.dollyFee,
       towingFee: fare.towingFee,
       serviceFee: fare.serviceFee,
       taxableSubtotal: fare.taxableSubtotal,
       vat: fare.vat,
       vatPercent: fare.vatPercent,
       total: fare.total,
-      includeRescue: rescueRequested,
+      includeRescue: includeDolly === true ? false : !!rescueRequested,
+      includeDolly: includeDolly === true,
       isNight: fare.isNight,
       isShabbat: fare.isShabbat,
       isHoliday: fare.isHoliday,
@@ -507,6 +514,7 @@ const destinationQuoteFor = async (trip, body) => {
     vehicleType: trip.vehicleInfo.type || "car",
     weightBand: trip.vehicleInfo.weightBand,
     includeRescue: trip.priceBreakdown?.includeRescue === true,
+    includeDolly: trip.priceBreakdown?.includeDolly === true,
     forceNight: trip.priceBreakdown?.isNight === true,
     forceShabbat: trip.priceBreakdown?.isShabbat === true,
     forceHoliday: trip.priceBreakdown?.isHoliday === true,
@@ -550,7 +558,8 @@ export const changeDestination = catchAsync(async (req, res) => {
   trip.estimatedDuration = quote.durationMinutes || trip.estimatedDuration;
   trip.price = quote.price;
   trip.priceBreakdown = { ...quote.priceBreakdown,
-    includeRescue: trip.priceBreakdown?.includeRescue === true };
+    includeRescue: trip.priceBreakdown?.includeRescue === true,
+    includeDolly: trip.priceBreakdown?.includeDolly === true };
   await trip.save();
   if (trip.driverId) {
     const driver = await Driver.findById(trip.driverId).select("userId");
@@ -867,7 +876,7 @@ export const acceptTrip = catchAsync(async (req, res) => {
         String(trip.notes).toLowerCase().includes("rescue") ||
         String(trip.notes).includes("חילוץ")
       ));
-    if (isRescueOrder) {
+    if (isRescueOrder && trip.priceBreakdown?.includeDolly !== true) {
       trip.price = Number(price);
       if (trip.priceBreakdown) {
         trip.priceBreakdown.total = Number(price);
@@ -1290,7 +1299,7 @@ export const updateRescuePrice = catchAsync(async (req, res) => {
       String(trip.notes).includes("חילוץ")
     ));
 
-  if (!isRescueOrder) {
+  if (!isRescueOrder || trip.priceBreakdown?.includeDolly === true) {
     throw new AppError(httpStatus.BAD_REQUEST, "Price editing is only allowed for Rescue orders");
   }
 
