@@ -20,6 +20,7 @@ export const PRICING = Object.freeze({
   serviceFee: 25,
   avgSpeedKmh: 40,
   pickupBufferMin: 12,
+  dollyFee: 600,
   vehicles: Object.freeze({
     car: Object.freeze({ includedKm: 5, basePrice: 300, additionalKmPrice: 20, rescueFee: 400 }),
     motorcycle: Object.freeze({ includedKm: 10, basePrice: 200, additionalKmPrice: 15, rescueFee: 200 }),
@@ -175,9 +176,12 @@ export const calculateTowingFare = (distanceKm, opts = {}) => {
   const nightSurcharge = night ? Number((base * 0.5).toFixed(2)) : 0;
   const shabbatSurcharge = shabbat ? Number((base * 0.5).toFixed(2)) : 0;
   const holidaySurcharge = holiday && !shabbat ? Number((base * 0.5).toFixed(2)) : 0;
-  const rescueFee = opts.includeRescue ? rate.rescueFee : 0;
+  // Dolly replaces the standard recovery surcharge; never charge both.
+  const includeDolly = opts.includeDolly === true;
+  const rescueFee = !includeDolly && opts.includeRescue ? rate.rescueFee : 0;
+  const dollyFee = includeDolly ? PRICING.dollyFee : 0;
   const towingFee = Number(
-    (base + rescueFee + nightSurcharge + shabbatSurcharge + holidaySurcharge).toFixed(2),
+    (base + rescueFee + dollyFee + nightSurcharge + shabbatSurcharge + holidaySurcharge).toFixed(2),
   );
   const serviceFee = typeof opts.serviceFee === "number" ? opts.serviceFee : PRICING.serviceFee;
   const taxableSubtotal = Number((towingFee + serviceFee).toFixed(2));
@@ -186,7 +190,7 @@ export const calculateTowingFare = (distanceKm, opts = {}) => {
   return {
     vehicleType, weightBand, includedKm: rate.includedKm,
     additionalKmPrice: rate.additionalKmPrice, basePrice: base,
-    nightSurcharge, shabbatSurcharge, holidaySurcharge, rescueFee,
+    nightSurcharge, shabbatSurcharge, holidaySurcharge, rescueFee, dollyFee, includeDolly,
     towingFee, serviceFee, taxableSubtotal, vat,
     vatPercent: PRICING.vatPercent, total, isNight: night,
     isShabbat: shabbat, isHoliday: holiday,
